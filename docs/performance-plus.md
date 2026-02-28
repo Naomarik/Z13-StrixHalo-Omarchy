@@ -54,7 +54,10 @@ plugged in). In addition, the `-40` all-core Curve Optimizer is applied
 | `~/.config/waybar/scripts/power-profile-status.sh` | Returns JSON for Waybar module |
 | `~/.config/waybar/scripts/power-draw.sh` | Shows live `STAPM value/limit W` in Waybar |
 | `~/.config/waybar/scripts/performance-plus-sleep-hook` | Source copy of the sleep hook |
+| `~/.config/waybar/scripts/performance-plus-ac-hook` | Source copy of the AC power hook |
 | `/lib/systemd/system-sleep/performance-plus` | Installed sleep hook (re-applies on resume) |
+| `/usr/lib/performance-plus/ac-hook` | Installed AC hook (re-applies on AC plug-in) |
+| `/etc/udev/rules.d/99-performance-plus-ac.rules` | Udev rule triggering AC hook on power change |
 | `/etc/tmpfiles.d/ryzenadj.conf` | Provisions `/run/ryzenadj/` (0777) at boot for shared lock files |
 | `/var/lib/performance-plus/active` | Flag file — exists = Ultra is active |
 | `/etc/sudoers.d/performance-plus` | Passwordless sudo rules for the above |
@@ -423,6 +426,63 @@ case "$1" in
         # Nothing to do before suspend
         ;;
 esac
+```
+
+---
+
+### AC power hook — `/usr/lib/performance-plus/ac-hook`
+
+When AC power is unplugged and replugged, `power-profiles-daemon` re-applies
+its stock PPT limits for the active profile, overwriting Ultra's ryzenadj
+overrides. This udev-triggered hook re-applies them after a 5-second delay
+(ppd takes longer to settle on power source changes than on profile switches).
+
+Installed via:
+```bash
+sudo mkdir -p /usr/lib/performance-plus
+sudo cp ~/.config/waybar/scripts/performance-plus-ac-hook \
+    /usr/lib/performance-plus/ac-hook
+sudo chmod 755 /usr/lib/performance-plus/ac-hook
+
+sudo tee /etc/udev/rules.d/99-performance-plus-ac.rules > /dev/null <<'EOF'
+SUBSYSTEM=="power_supply", KERNEL=="AC0", ATTR{online}=="1", RUN+="/usr/lib/performance-plus/ac-hook"
+EOF
+
+sudo udevadm control --reload-rules
+```
+
+```bash
+#!/bin/bash
+#
+# /usr/lib/performance-plus/ac-hook
+#
+# Udev helper: re-applies Performance Plus (Ultra) ryzenadj settings when
+# AC power is plugged in.
+#
+# Called by udev rule 99-performance-plus-ac.rules.  Udev handlers must
+# return quickly.  Udev kills all children in its cgroup when RUN+= exits,
+# so we use systemd-run to spawn the delayed re-apply in its own transient
+# scope, outside udev's process lifetime.
+#
+
+RYZENADJ="/home/naomarik/.local/bin/ryzenadj"
+STATE_FILE="/var/lib/performance-plus/active"
+
+# Only act when Ultra is active and AC is online
+[[ -f "$STATE_FILE" ]] || exit 0
+[[ "$(cat /sys/class/power_supply/AC0/online 2>/dev/null)" == "1" ]] || exit 0
+
+# Delay 5s to let power-profiles-daemon finish re-applying its own PPT limits,
+# then override with Ultra values.
+systemd-run --no-block bash -c "
+    sleep 5
+    $RYZENADJ \
+        --fast-limit=120000 \
+        --slow-limit=85000 \
+        --apu-slow-limit=85000 \
+        --tctl-temp=95 \
+        --set-coall=0x0fffd8
+"
 ```
 
 ---

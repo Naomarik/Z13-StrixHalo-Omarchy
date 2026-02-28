@@ -29,12 +29,15 @@ if [[ "$NEXT" == "ultra" ]]; then
     powerprofilesctl set performance
     sudo mkdir -p /var/lib/performance-plus
     sudo touch "$STATE_FILE"
-    "$HOME/.local/bin/ryzenadj" \
+    # Delay 2s to let power-profiles-daemon finish applying its own PPT limits
+    # before ryzenadj overrides them — without this, ppd overwrites fast/slow
+    # limits back to stock performance values (86W/70W) after ryzenadj sets them.
+    (sleep 2 && "$HOME/.local/bin/ryzenadj" \
         --fast-limit=120000 \
         --slow-limit=85000 \
         --apu-slow-limit=85000 \
         --tctl-temp=95 \
-        --set-coall=0x0fffd8
+        --set-coall=0x0fffd8) &
 else
     if $ULTRA_ACTIVE; then
         sudo rm -f "$STATE_FILE"

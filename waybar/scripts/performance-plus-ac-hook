@@ -1,0 +1,31 @@
+#!/bin/bash
+#
+# /usr/lib/performance-plus/ac-hook
+#
+# Udev helper: re-applies Performance Plus (Ultra) ryzenadj settings when
+# AC power is plugged in.
+#
+# Called by udev rule 99-performance-plus-ac.rules.  Udev handlers must
+# return quickly.  Udev kills all children in its cgroup when RUN+= exits,
+# so we use systemd-run to spawn the delayed re-apply in its own transient
+# scope, outside udev's process lifetime.
+#
+
+RYZENADJ="/home/naomarik/.local/bin/ryzenadj"
+STATE_FILE="/var/lib/performance-plus/active"
+
+# Only act when Ultra is active and AC is online
+[[ -f "$STATE_FILE" ]] || exit 0
+[[ "$(cat /sys/class/power_supply/AC0/online 2>/dev/null)" == "1" ]] || exit 0
+
+# Delay 2s to let power-profiles-daemon finish re-applying its own PPT limits,
+# then override with Ultra values.
+systemd-run --no-block bash -c "
+    sleep 5
+    $RYZENADJ \
+        --fast-limit=120000 \
+        --slow-limit=85000 \
+        --apu-slow-limit=85000 \
+        --tctl-temp=95 \
+        --set-coall=0x0fffd8
+"

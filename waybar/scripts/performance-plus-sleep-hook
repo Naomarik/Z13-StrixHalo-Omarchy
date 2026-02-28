@@ -14,7 +14,7 @@
 # Path to the ryzenadj wrapper (~/.local/bin/ryzenadj) — must be absolute
 # since this hook runs as root and $HOME resolves to /root.
 # Update this to match your user's home directory.
-RYZENADJ="${RYZENADJ:-/usr/local/bin/ryzenadj}"
+RYZENADJ="${RYZENADJ:-/home/naomarik/.local/bin/ryzenadj}"
 
 STATE_FILE="/var/lib/performance-plus/active"
 
