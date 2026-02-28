@@ -99,12 +99,12 @@ it automatically after suspend/resume.
 
 Profile limits reported by `ryzenadj -i` on this machine:
 
-| Profile | STAPM | PPT fast | PPT slow | Tctl |
-|---|---|---|---|---|
-| Quiet (`Q`) | 52.557 W | 55 W | 40 W | default |
-| Balanced (`B`) | 71 W | 71 W | 52 W | default |
-| Performance (`P`) | 86 W | 86 W | 70 W | default |
-| Ultra (`U`) | 86 W (inherits `P`) | 120 W | 85 W | 95 C |
+| Profile | PPT fast | PPT slow | Tctl |
+|---|---|---|---|
+| Quiet (`Q`) | 55 W | 40 W | default |
+| Balanced (`B`) | 71 W | 52 W | default |
+| Performance (`P`) | 86 W | 70 W | default |
+| Ultra (`U`) | 120 W | 85 W | 95 C |
 
 Ultra also applies a `-40` all-core Curve Optimizer (`--set-coall=0x0fffd8`).
 
