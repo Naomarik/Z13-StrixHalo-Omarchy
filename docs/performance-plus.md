@@ -24,15 +24,24 @@ Q (power-saver) → B (balanced) → P (performance) → ⚡ U (ultra) → Q
 Sets the following via `ryzenadj` on top of the `performance` base profile:
 
 ```
---fast-limit=120000      # PPT fast limit: 120W
---slow-limit=85000       # PPT slow limit: 85W
---apu-slow-limit=85000   # APU slow limit: 85W
+--fast-limit=120000      # PPT fast limit: 120W  (plugged in)
+--slow-limit=85000       # PPT slow limit: 85W   (plugged in)
+--apu-slow-limit=85000   # APU slow limit: 85W   (plugged in)
 --tctl-temp=95           # Thermal limit: 95°C
 --set-coall=0x0fffd8     # Curve Optimizer: -40 all-core
 ```
 
+> All PPT values are measured/applied while plugged in (AC). On battery the
+> firmware enforces lower limits regardless of what ryzenadj sets.
+
 These settings are re-applied automatically after suspend/resume when Ultra
 is active.
+
+### What Quiet (Q) does
+
+Quiet uses the stock `power-saver` profile limits (55 W fast / 40 W slow,
+plugged in). In addition, the `-40` all-core Curve Optimizer is applied
+2 seconds after switching to Q, and re-applied after suspend/resume.
 
 ---
 
@@ -395,16 +404,19 @@ STATE_FILE="/var/lib/performance-plus/active"
 
 case "$1" in
     post)
-        # Only re-apply if Ultra mode is active
+        # Small delay to let the system fully wake before hitting the hardware
+        sleep 2
+        # Re-apply Ultra ryzenadj settings if Ultra mode is active
         if [[ -f "$STATE_FILE" ]]; then
-            # Small delay to let the system fully wake before hitting the hardware
-            sleep 2
             "$RYZENADJ" \
                 --fast-limit=120000 \
                 --slow-limit=85000 \
                 --apu-slow-limit=85000 \
                 --tctl-temp=95 \
                 --set-coall=0x0fffd8
+        # Re-apply undervolt if power-saver (Q) is active
+        elif [[ "$(powerprofilesctl get 2>/dev/null)" == "power-saver" ]]; then
+            "$RYZENADJ" --set-coall=0x0fffd8
         fi
         ;;
     pre)

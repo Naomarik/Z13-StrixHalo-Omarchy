@@ -97,7 +97,7 @@ Full setup and rollback guide: [docs/kernel-and-asus-stack.md](docs/kernel-and-a
 additional `Ultra` mode on top of `performance` using `ryzenadj`, and re-applies
 it automatically after suspend/resume.
 
-Profile limits reported by `ryzenadj -i` on this machine:
+Profile limits reported by `ryzenadj -i` on this machine (plugged in):
 
 | Profile | PPT fast | PPT slow | Tctl |
 |---|---|---|---|
@@ -106,7 +106,10 @@ Profile limits reported by `ryzenadj -i` on this machine:
 | Performance (`P`) | 86 W | 70 W | default |
 | Ultra (`U`) | 120 W | 85 W | 95 C |
 
+> Values are lower on battery — these are AC/plugged-in readings.
+
 Ultra also applies a `-40` all-core Curve Optimizer (`--set-coall=0x0fffd8`).
+Quiet also applies the same Curve Optimizer 2 seconds after switching.
 
 The Waybar module cycles `Q -> B -> P -> U -> Q` on click and reports live
 STAPM watts.
