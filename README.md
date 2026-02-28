@@ -1,4 +1,6 @@
-# z13flow
+# ASUS ROG Flow Z13 (2025) — Omarchy Config, Fixes, and Tuning
+
+> Repository: `z13flow`
 
 ![Arch Linux](https://img.shields.io/badge/Arch-Linux-1793D1?logo=arch-linux&logoColor=white)
 ![Omarchy](https://img.shields.io/badge/Omarchy-3.4.0-111111)
