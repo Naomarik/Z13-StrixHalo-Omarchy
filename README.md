@@ -12,6 +12,7 @@ Config, fixes, and tuning for the **ASUS ROG Flow Z13 (2025)** running
 | **Memory** | 128 GB unified LPDDR5X |
 | **OS** | Arch Linux + [Omarchy](https://github.com/basecamp/omarchy) |
 | **Kernel** | `linux-g14 6.18.7.arch1-1.2` |
+| **Omarchy** | `3.4.0` |
 | **WM** | Hyprland |
 
 ---
