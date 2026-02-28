@@ -1,15 +1,15 @@
 # z13flow
 
-Config, fixes, and tuning for the **ASUS Zenbook Z13 Flow (2025)** running
+Config, fixes, and tuning for the **ASUS ROG Flow Z13 (2025)** running
 [Omarchy](https://github.com/basecamp/omarchy) on Arch Linux.
 
 | | |
 |---|---|
-| **Machine** | ASUS Zenbook Z13 Flow (2025) |
+| **Machine** | ASUS ROG Flow Z13 (2025) |
 | **SoC** | AMD Ryzen AI Max+ 395 (Strix Halo / gfx1151) |
 | **CPU** | 16c / 32t |
 | **iGPU** | Radeon 8060S — 40 CU |
-| **Memory** | 96 GB unified LPDDR5X |
+| **Memory** | 128 GB unified LPDDR5X |
 | **OS** | Arch Linux + [Omarchy](https://github.com/basecamp/omarchy) |
 | **Kernel** | `linux-g14 6.18.7.arch1-1.2` |
 | **WM** | Hyprland |
@@ -120,10 +120,13 @@ Then select `IRZ13 Flow` in EasyEffects → Output → Presets.
 
 ### Headphone output — `Perfect EQ` preset
 
-Used when listening on headphones instead of the built-in speakers. Switch to
-this preset manually in EasyEffects when plugging in headphones — it applies a
+Used when listening on headphones instead of the built-in speakers. It applies a
 neutral EQ curve suited to headphone output without the heavy bass compensation
 the speaker preset needs.
+
+EasyEffects can switch presets automatically based on the output device — go to
+**Preferences → Output → Auto-load** and assign `Perfect EQ` to your headphone
+device and `IRZ13 Flow` to the built-in speakers. No manual switching needed.
 
 ```bash
 cp "easyeffects/output/Perfect EQ.json" ~/.local/share/easyeffects/output/
