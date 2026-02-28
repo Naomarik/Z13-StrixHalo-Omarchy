@@ -1,0 +1,38 @@
+#!/bin/bash
+#
+# /lib/systemd/system-sleep/performance-plus
+#
+# Systemd sleep hook that re-applies Performance Plus (Ultra) ryzenadj
+# settings after resume from suspend/hibernate.
+#
+# Called by systemd with: $1 = pre|post, $2 = suspend|hibernate|hybrid-sleep|suspend-then-hibernate
+#
+# Only runs ryzenadj on POST (resume), never on pre-suspend.
+# The throttle in ryzenadj-safe prevents rapid re-application.
+#
+
+# Path to the ryzenadj wrapper (~/.local/bin/ryzenadj) — must be absolute
+# since this hook runs as root and $HOME resolves to /root.
+# Update this to match your user's home directory.
+RYZENADJ="${RYZENADJ:-/usr/local/bin/ryzenadj}"
+
+STATE_FILE="/var/lib/performance-plus/active"
+
+case "$1" in
+    post)
+        # Only re-apply if Ultra mode is active
+        if [[ -f "$STATE_FILE" ]]; then
+            # Small delay to let the system fully wake before hitting the hardware
+            sleep 2
+            "$RYZENADJ" \
+                --fast-limit=120000 \
+                --slow-limit=85000 \
+                --apu-slow-limit=85000 \
+                --tctl-temp=95 \
+                --set-coall=0x0fffd8
+        fi
+        ;;
+    pre)
+        # Nothing to do before suspend
+        ;;
+esac

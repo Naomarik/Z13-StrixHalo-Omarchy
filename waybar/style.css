@@ -1,0 +1,143 @@
+@import "../omarchy/current/theme/waybar.css";
+
+* {
+  background-color: @background;
+  color: @foreground;
+
+  border: none;
+  border-radius: 0;
+  min-height: 0;
+  font-family: 'CaskaydiaMono Nerd Font';
+  font-size: 12px;
+}
+
+.modules-left {
+  margin-left: 8px;
+}
+
+.modules-right {
+  margin-right: 8px;
+}
+
+#workspaces button {
+  padding: 0 6px;
+  margin: 0 1.5px;
+  min-width: 9px;
+}
+
+#workspaces button.active {
+  color: #f38ba8;
+  border-top: 1px solid #f38ba8;
+}
+
+#workspaces button.empty {
+  opacity: 0.5;
+}
+
+#cpu,
+#memory,
+#battery,
+#power-profiles-daemon,
+#custom-omarchy,
+
+#custom-dictation-indicator,
+#custom-update,
+#pulseaudio,
+#custom-temperature,
+#bluetooth,
+#network {
+  min-width: 12px;
+  margin: 0;
+  opacity: 0.9;
+}
+
+#custom-idle-lock {
+  min-width: 12px;
+  margin: 0 2px 0 4px;
+  opacity: 0.9;
+}
+
+#custom-notification-toggle {
+  min-width: 12px;
+  margin: 0 2px 0 0px;
+  opacity: 0.9;
+}
+
+#custom-sep {
+  margin: 0 7px;
+  opacity: 0.5;
+  font-size: 10.8px;
+}
+
+#tray {
+  margin-right: 16px;
+}
+
+#bluetooth,
+#network {
+  margin: 0;
+}
+
+#custom-expand-icon {
+  margin-right: 18px;
+}
+
+tooltip {
+  padding: 2px;
+}
+
+#custom-update {
+  font-size: 10px;
+  padding: 0 4px;
+}
+
+#clock {
+  margin: 0;
+}
+
+.hidden {
+  opacity: 0;
+}
+
+#custom-screenrecording-indicator,
+#custom-idle-indicator,
+#custom-notification-silencing-indicator {
+  min-width: 12px;
+  margin-left: 5px;
+  margin-right: 0;
+  font-size: 10px;
+  padding-bottom: 1px;
+}
+
+#custom-screenrecording-indicator.active {
+  color: #a55555;
+}
+
+#custom-dictation-indicator {
+  min-width: 10px;
+  margin-left: 8px;
+  margin-right: 0;
+  font-size: 10px;
+  opacity: 0;
+}
+
+#custom-dictation-indicator.active {
+  color: #ff0000;
+  opacity: 1;
+}
+
+
+
+#custom-voxtype {
+  min-width: 12px;
+  margin: 0 0 0 7.5px;
+}
+
+#custom-voxtype.recording {
+  color: #a55555;
+}
+
+#custom-idle-indicator.active,
+#custom-notification-silencing-indicator.active {
+  color: #a55555;
+}

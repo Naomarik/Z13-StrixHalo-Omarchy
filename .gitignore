@@ -1,0 +1,13 @@
+# OpenCode — not tracked in this repo
+opencode/
+
+# Common accidental inclusions
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.cert
+id_rsa*
+id_ed25519*
+*.secret
