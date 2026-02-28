@@ -26,6 +26,7 @@ Config, fixes, and tuning for the **ASUS ROG Flow Z13 (2025)** running
 - [EasyEffects](#easyeffects)
 
 **General config**
+- [hy3 tiling](#hy3-tiling)
 - [Gaming mode](#gaming-mode)
 - [Waybar](#waybar)
 - [Pacman / makepkg](#pacman--makepkg)
@@ -193,6 +194,26 @@ BT is working ~17 seconds after boot. See [docs/bluetooth.md](docs/bluetooth.md)
 ---
 
 ## General config
+
+### hy3 tiling
+
+[hy3](https://github.com/outfoxxed/hy3) replaces Hyprland's default layout with
+i3/sway-style explicit manual tiling.
+
+**Autotile** is enabled — windows split automatically once a container exceeds
+300×500 px, so you rarely need to explicitly create splits. When you do:
+
+| Key | Action |
+|---|---|
+| `Super + H` | Horizontal split |
+| `Super + T` | Tab group |
+| `Super + TAB` | Toggle tab mode |
+| `Super + E` | Flip split direction |
+| `Super + J/K/L/;` | Move focus |
+| `Super + Shift + J/K/L/;` | Move window |
+| `Super + A / Escape` | Raise / lower focus into group |
+
+See [docs/hy3.md](docs/hy3.md) for install, update procedure, and full config.
 
 ### Gaming mode
 
