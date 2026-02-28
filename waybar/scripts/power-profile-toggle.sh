@@ -40,6 +40,11 @@ else
         sudo rm -f "$STATE_FILE"
     fi
     powerprofilesctl set "$NEXT"
+    # Apply undervolt after switching to power-saver (Q); delay 2s to let the
+    # profile settle before ryzenadj writes the curve optimiser value.
+    if [[ "$NEXT" == "power-saver" ]]; then
+        (sleep 2 && "$HOME/.local/bin/ryzenadj" --set-coall=0x0fffd8) &
+    fi
 fi
 
 pkill -RTMIN+$WAYBAR_SIGNAL waybar 2>/dev/null || true

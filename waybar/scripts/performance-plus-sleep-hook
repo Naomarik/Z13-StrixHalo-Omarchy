@@ -20,16 +20,19 @@ STATE_FILE="/var/lib/performance-plus/active"
 
 case "$1" in
     post)
-        # Only re-apply if Ultra mode is active
+        # Small delay to let the system fully wake before hitting the hardware
+        sleep 2
+        # Re-apply Ultra ryzenadj settings if Ultra mode is active
         if [[ -f "$STATE_FILE" ]]; then
-            # Small delay to let the system fully wake before hitting the hardware
-            sleep 2
             "$RYZENADJ" \
                 --fast-limit=120000 \
                 --slow-limit=85000 \
                 --apu-slow-limit=85000 \
                 --tctl-temp=95 \
                 --set-coall=0x0fffd8
+        # Re-apply undervolt if power-saver (Q) is active
+        elif [[ "$(powerprofilesctl get 2>/dev/null)" == "power-saver" ]]; then
+            "$RYZENADJ" --set-coall=0x0fffd8
         fi
         ;;
     pre)
