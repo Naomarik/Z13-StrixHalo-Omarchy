@@ -276,6 +276,21 @@ exit $STATUS
 STATE_FILE="/var/lib/performance-plus/active"
 WAYBAR_SIGNAL=13
 
+# Function to apply Ultra settings
+apply_ultra_settings() {
+    "$HOME/.local/bin/ryzenadj" \
+        --fast-limit=120000 \
+        --slow-limit=85000 \
+        --apu-slow-limit=85000 \
+        --tctl-temp=95 \
+        --set-coall=0x0fffd8
+}
+
+# Function to apply undervolt
+apply_undervolt() {
+    "$HOME/.local/bin/ryzenadj" --set-coall=0x0fffd8
+}
+
 CURRENT_PROFILE=$(powerprofilesctl get 2>/dev/null || echo "balanced")
 ULTRA_ACTIVE=false
 [[ -f "$STATE_FILE" ]] && ULTRA_ACTIVE=true
@@ -298,17 +313,21 @@ if [[ "$NEXT" == "ultra" ]]; then
     powerprofilesctl set performance
     sudo mkdir -p /var/lib/performance-plus
     sudo touch "$STATE_FILE"
-    "$HOME/.local/bin/ryzenadj" \
-        --fast-limit=120000 \
-        --slow-limit=85000 \
-        --apu-slow-limit=85000 \
-        --tctl-temp=95 \
-        --set-coall=0x0fffd8
+    # Apply immediately, then re-apply after delays to ensure settings stick
+    # (power-profiles-daemon and asusd may reset PPT limits shortly after)
+    apply_ultra_settings
+    (sleep 3 && apply_ultra_settings) &
+    (sleep 9 && apply_ultra_settings) &
 else
     if $ULTRA_ACTIVE; then
         sudo rm -f "$STATE_FILE"
     fi
     powerprofilesctl set "$NEXT"
+    # Apply undervolt after switching to power-saver (Q)
+    if [[ "$NEXT" == "power-saver" ]]; then
+        apply_undervolt
+        (sleep 3 && apply_undervolt) &
+    fi
 fi
 
 pkill -RTMIN+$WAYBAR_SIGNAL waybar 2>/dev/null || true
@@ -402,24 +421,44 @@ sudo chmod 755 /lib/systemd/system-sleep/performance-plus
 # Only runs ryzenadj on POST (resume), never on pre-suspend.
 # The throttle in the ryzenadj wrapper prevents rapid re-application.
 #
+# Why apply multiple times? asusd runs on_prepare_for_sleep(false) at the same
+# time as this hook and may reset platform PPT limits shortly after resume.
+# We apply immediately, then re-apply at 3s and 9s to ensure our 120W limits stick.
+#
 
+RYZENADJ="${RYZENADJ:-/home/naomarik/.local/bin/ryzenadj}"
 STATE_FILE="/var/lib/performance-plus/active"
+
+# Function to apply Ultra settings
+apply_ultra_settings() {
+    "$RYZENADJ" \
+        --fast-limit=120000 \
+        --slow-limit=85000 \
+        --apu-slow-limit=85000 \
+        --tctl-temp=95 \
+        --set-coall=0x0fffd8
+}
+
+# Function to apply undervolt for power-saver mode
+apply_undervolt() {
+    "$RYZENADJ" --set-coall=0x0fffd8
+}
 
 case "$1" in
     post)
-        # Small delay to let the system fully wake before hitting the hardware
-        sleep 2
         # Re-apply Ultra ryzenadj settings if Ultra mode is active
         if [[ -f "$STATE_FILE" ]]; then
-            "$RYZENADJ" \
-                --fast-limit=120000 \
-                --slow-limit=85000 \
-                --apu-slow-limit=85000 \
-                --tctl-temp=95 \
-                --set-coall=0x0fffd8
+            # Apply immediately after resume (asusd may reset shortly after)
+            apply_ultra_settings
+            # Wait 3s and re-apply to override asusd's platform profile reset
+            (sleep 3 && apply_ultra_settings) &
+            # Wait 6s more and verify/re-apply one more time to ensure it sticks
+            (sleep 9 && apply_ultra_settings) &
         # Re-apply undervolt if power-saver (Q) is active
         elif [[ "$(powerprofilesctl get 2>/dev/null)" == "power-saver" ]]; then
-            "$RYZENADJ" --set-coall=0x0fffd8
+            apply_undervolt
+            (sleep 3 && apply_undervolt) &
+            (sleep 9 && apply_undervolt) &
         fi
         ;;
     pre)
