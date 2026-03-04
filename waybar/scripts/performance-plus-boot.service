@@ -1,0 +1,21 @@
+[Unit]
+Description=Performance Plus (Ultra) - Re-apply ryzenadj on boot
+After=multi-user.target
+ConditionPathExists=/var/lib/performance-plus/active
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment="RYZENADJ=/home/naomarik/.local/bin/ryzenadj"
+Environment="STATE_FILE=/var/lib/performance-plus/active"
+ExecStart=/bin/bash -c '\
+    apply_ultra() { \
+        "$RYZENADJ" --fast-limit=120000 --slow-limit=85000 --apu-slow-limit=85000 --tctl-temp=95 --set-coall=0x0fffd8; \
+    }; \
+    apply_ultra; \
+    (sleep 3 && apply_ultra) & \
+    (sleep 9 && apply_ultra) & \
+    wait'
+
+[Install]
+WantedBy=multi-user.target

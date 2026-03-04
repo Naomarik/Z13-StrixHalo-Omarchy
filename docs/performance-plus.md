@@ -58,6 +58,7 @@ plugged in). In addition, the `-40` all-core Curve Optimizer is applied
 | `/lib/systemd/system-sleep/performance-plus` | Installed sleep hook (re-applies on resume) |
 | `/usr/lib/performance-plus/ac-hook` | Installed AC hook (re-applies on AC plug-in) |
 | `/etc/udev/rules.d/99-performance-plus-ac.rules` | Udev rule triggering AC hook on power change |
+| `/etc/systemd/system/performance-plus-boot.service` | Boot service (re-applies on boot if Ultra active) |
 | `/etc/tmpfiles.d/ryzenadj.conf` | Provisions `/run/ryzenadj/` (0777) at boot for shared lock files |
 | `/var/lib/performance-plus/active` | Flag file — exists = Ultra is active |
 | `/etc/sudoers.d/performance-plus` | Passwordless sudo rules for the above |
@@ -407,6 +408,44 @@ sudo cp ~/.config/waybar/scripts/performance-plus-sleep-hook \
     /lib/systemd/system-sleep/performance-plus
 sudo chmod 755 /lib/systemd/system-sleep/performance-plus
 ```
+
+### Boot service — `/etc/systemd/system/performance-plus-boot.service`
+
+Re-applies Ultra ryzenadj settings on boot if the state file exists (survives reboots).
+
+Installed via:
+```bash
+sudo cp ~/.config/waybar/scripts/performance-plus-boot.service \
+    /etc/systemd/system/performance-plus-boot.service
+sudo systemctl daemon-reload
+sudo systemctl enable performance-plus-boot.service
+```
+
+```ini
+[Unit]
+Description=Performance Plus (Ultra) - Re-apply ryzenadj on boot
+After=multi-user.target
+ConditionPathExists=/var/lib/performance-plus/active
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment="RYZENADJ=/home/naomarik/.local/bin/ryzenadj"
+Environment="STATE_FILE=/var/lib/performance-plus/active"
+ExecStart=/bin/bash -c '\
+    apply_ultra() { \
+        "$RYZENADJ" --fast-limit=120000 --slow-limit=85000 --apu-slow-limit=85000 --tctl-temp=95 --set-coall=0x0fffd8; \
+    }; \
+    apply_ultra; \
+    (sleep 3 && apply_ultra) & \
+    (sleep 9 && apply_ultra) & \
+    wait'
+
+[Install]
+WantedBy=multi-user.target
+```
+
+---
 
 ```bash
 #!/bin/bash

@@ -184,11 +184,17 @@ cp waybar/config.jsonc waybar/style.css ~/.config/waybar/
 cp -r waybar/scripts ~/.config/waybar/scripts/
 ```
 
-If you use Performance Plus, also install the resume hook:
+If you use Performance Plus, also install the resume hook and boot service:
 
 ```bash
+# Resume hook (re-applies on wake from suspend)
 sudo cp waybar/scripts/performance-plus-sleep-hook /lib/systemd/system-sleep/performance-plus
 sudo chmod +x /lib/systemd/system-sleep/performance-plus
+
+# Boot service (re-applies on boot if Ultra was active)
+sudo cp waybar/scripts/performance-plus-boot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable performance-plus-boot.service
 ```
 
 ## Audio presets (EasyEffects)
