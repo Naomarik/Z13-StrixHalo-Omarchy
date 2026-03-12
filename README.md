@@ -155,6 +155,15 @@ Common bindings:
 
 Install/update details: [docs/hy3.md](docs/hy3.md)
 
+### SwayOSD
+
+`swayosd-server` 0.3.0 has a recurring `SIGSEGV` crash (GTK4/libwayland race). It also
+silently loses D-Bus registration if it starts before the session bus is ready. Both leave the
+OSD dead mid-session with no indication.
+
+Fix: managed as a user systemd service with `Restart=always` and `After=dbus.socket` instead
+of relying on Hyprland's `exec-once`. See [docs/swayosd.md](docs/swayosd.md).
+
 ### Gaming mode
 
 `Super+Shift+F5` performs a full session handoff from Hyprland to a bare
@@ -259,7 +268,8 @@ z13flow/
 │   ├── hy3.md
 │   ├── kernel-and-asus-stack.md
 │   ├── pacman-build-config.md
-│   └── performance-plus.md
+│   ├── performance-plus.md
+│   └── swayosd.md
 ├── easyeffects/
 │   ├── input/
 │   │   └── FlowMic.json
