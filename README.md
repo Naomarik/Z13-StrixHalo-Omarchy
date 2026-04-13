@@ -33,6 +33,7 @@ Config, fixes, and performance tuning for the **ASUS ROG Flow Z13 (2025)** runni
 - [Platform setup](#platform-setup)
 - [Desktop configuration](#desktop-configuration)
 - [Audio presets (EasyEffects)](#audio-presets-easyeffects)
+- [Webcam fix (suspend/resume)](#webcam-fix-suspendresume)
 - [Build performance (pacman/makepkg)](#build-performance-pacmanmakepkg)
 - [Repository layout](#repository-layout)
 - [Related projects](#related-projects)
@@ -44,6 +45,7 @@ Config, fixes, and performance tuning for the **ASUS ROG Flow Z13 (2025)** runni
 - **Waybar modules** for profile switching, live STAPM watts, thermals, idle lock, notifications, and refresh-rate toggles
 - **EasyEffects presets** for speakers, headphones, and microphone processing
 - **Bluetooth workaround** for MT7925 (`hci0` WMT timeout on boot)
+- **Webcam fix** for suspend/resume failures on the ASUS 5M camera
 - **hy3 tiling + gaming mode session handoff** for workflow and performance
 
 ## Quick start
@@ -134,6 +136,26 @@ sudo systemctl restart bluetooth
 
 Permanent systemd workaround and diagnostics:
 [docs/bluetooth.md](docs/bluetooth.md)
+
+## Webcam fix (suspend/resume)
+
+The ASUS 5M webcam stops working after suspend/resume due to a USB controller
+initialization failure. The xhci controller (PCI c4:00.4) doesn't properly
+re-enumerate the camera on wake.
+
+Quick fix:
+
+```bash
+~/fix-webcam.sh
+```
+
+Permanent fix (automatic on resume):
+
+```bash
+sudo systemctl enable fix-webcam-suspend.service
+```
+
+Full details: [docs/webcam.md](docs/webcam.md)
 
 ## Desktop configuration
 
@@ -269,7 +291,8 @@ z13flow/
 │   ├── kernel-and-asus-stack.md
 │   ├── pacman-build-config.md
 │   ├── performance-plus.md
-│   └── swayosd.md
+│   ├── swayosd.md
+│   └── webcam.md
 ├── easyeffects/
 │   ├── input/
 │   │   └── FlowMic.json
@@ -283,6 +306,7 @@ z13flow/
 │   ├── bindings.conf
 │   └── scripts/
 ├── scripts/
+│   ├── fix-webcam.sh
 │   └── gaming-mode-install.sh
 └── waybar/
     ├── config.jsonc
