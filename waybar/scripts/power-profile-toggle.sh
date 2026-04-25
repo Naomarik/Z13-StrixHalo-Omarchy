@@ -6,10 +6,27 @@
 #
 STATE_FILE="/var/lib/performance-plus/active"
 WAYBAR_SIGNAL=13
+LOCK_FILE="/tmp/power-profile-toggle.lock"
+THROTTLE_SECS=3
+
+# Throttling: prevent rapid successive calls that can crash ryzenadj
+if [[ -f "$LOCK_FILE" ]]; then
+    LAST_RUN=$(cat "$LOCK_FILE" 2>/dev/null || echo 0)
+    CURRENT_TIME=$(date +%s)
+    ELAPSED=$((CURRENT_TIME - LAST_RUN))
+    if [[ $ELAPSED -lt $THROTTLE_SECS ]]; then
+        # Too soon - silently exit
+        exit 0
+    fi
+fi
+
+# Update lock file with current timestamp
+date +%s > "$LOCK_FILE"
 
 # Function to apply Ultra settings
 apply_ultra_settings() {
     "$HOME/.local/bin/ryzenadj" \
+        --stapm-limit=120000 \
         --fast-limit=120000 \
         --slow-limit=85000 \
         --apu-slow-limit=85000 \
@@ -54,8 +71,8 @@ else
         sudo rm -f "$STATE_FILE"
     fi
     powerprofilesctl set "$NEXT"
-    # Apply undervolt after switching to power-saver (Q)
-    if [[ "$NEXT" == "power-saver" ]]; then
+    # Apply undervolt after switching to power-saver (Q) or balanced (B)
+    if [[ "$NEXT" == "power-saver" || "$NEXT" == "balanced" ]]; then
         apply_undervolt
         (sleep 3 && apply_undervolt) &
     fi
