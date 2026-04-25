@@ -6,22 +6,9 @@
 #
 STATE_FILE="/var/lib/performance-plus/active"
 WAYBAR_SIGNAL=13
-LOCK_FILE="/tmp/power-profile-toggle.lock"
-THROTTLE_SECS=3
-
-# Throttling: prevent rapid successive calls that can crash ryzenadj
-if [[ -f "$LOCK_FILE" ]]; then
-    LAST_RUN=$(cat "$LOCK_FILE" 2>/dev/null || echo 0)
-    CURRENT_TIME=$(date +%s)
-    ELAPSED=$((CURRENT_TIME - LAST_RUN))
-    if [[ $ELAPSED -lt $THROTTLE_SECS ]]; then
-        # Too soon - silently exit
-        exit 0
-    fi
-fi
-
-# Update lock file with current timestamp
-date +%s > "$LOCK_FILE"
+PENDING_FILE="/tmp/power-profile-pending"
+DEBOUNCE_PID_FILE="/tmp/power-profile-debounce.pid"
+DEBOUNCE_MS=500
 
 # Function to apply Ultra settings
 apply_ultra_settings() {
@@ -39,11 +26,19 @@ apply_undervolt() {
     "$HOME/.local/bin/ryzenadj" --set-coall=0x0fffd8
 }
 
+# Debounce: kill existing timer and update pending mode
+if [[ -f "$DEBOUNCE_PID_FILE" ]]; then
+    OLD_PID=$(cat "$DEBOUNCE_PID_FILE" 2>/dev/null)
+    if [[ -n "$OLD_PID" ]] && kill -0 "$OLD_PID" 2>/dev/null; then
+        kill "$OLD_PID" 2>/dev/null
+    fi
+fi
+
+# Calculate next mode based on CURRENT state (read fresh each time)
 CURRENT_PROFILE=$(powerprofilesctl get 2>/dev/null || echo "balanced")
 ULTRA_ACTIVE=false
 [[ -f "$STATE_FILE" ]] && ULTRA_ACTIVE=true
 
-# Determine next mode
 if $ULTRA_ACTIVE; then
     NEXT="power-saver"
 elif [[ "$CURRENT_PROFILE" == "performance" ]]; then
@@ -56,26 +51,39 @@ else
     NEXT="balanced"
 fi
 
-# Apply next mode
-if [[ "$NEXT" == "ultra" ]]; then
-    powerprofilesctl set performance
-    sudo mkdir -p /var/lib/performance-plus
-    sudo touch "$STATE_FILE"
-    # Apply immediately, then re-apply after delays to ensure settings stick
-    # (power-profiles-daemon and asusd may reset PPT limits shortly after)
-    apply_ultra_settings
-    (sleep 3 && apply_ultra_settings) &
-    (sleep 9 && apply_ultra_settings) &
-else
-    if $ULTRA_ACTIVE; then
-        sudo rm -f "$STATE_FILE"
-    fi
-    powerprofilesctl set "$NEXT"
-    # Apply undervolt after switching to power-saver (Q) or balanced (B)
-    if [[ "$NEXT" == "power-saver" || "$NEXT" == "balanced" ]]; then
-        apply_undervolt
-        (sleep 3 && apply_undervolt) &
-    fi
-fi
+# Write the desired mode to pending file
+echo "$NEXT" > "$PENDING_FILE"
 
-pkill -RTMIN+$WAYBAR_SIGNAL waybar 2>/dev/null || true
+# Start debounce timer in background
+(
+    sleep 0.$DEBOUNCE_MS
+    
+    # Read the final desired mode
+    FINAL_MODE=$(cat "$PENDING_FILE" 2>/dev/null || echo "balanced")
+    rm -f "$PENDING_FILE"
+    rm -f "$DEBOUNCE_PID_FILE"
+    
+    # Apply the mode
+    if [[ "$FINAL_MODE" == "ultra" ]]; then
+        powerprofilesctl set performance
+        sudo mkdir -p /var/lib/performance-plus
+        sudo touch "$STATE_FILE"
+        apply_ultra_settings
+        (sleep 3 && apply_ultra_settings) &
+        (sleep 9 && apply_ultra_settings) &
+    else
+        if [[ -f "$STATE_FILE" ]]; then
+            sudo rm -f "$STATE_FILE"
+        fi
+        powerprofilesctl set "$FINAL_MODE"
+        if [[ "$FINAL_MODE" == "power-saver" || "$FINAL_MODE" == "balanced" ]]; then
+            apply_undervolt
+            (sleep 3 && apply_undervolt) &
+        fi
+    fi
+    
+    pkill -RTMIN+$WAYBAR_SIGNAL waybar 2>/dev/null || true
+) &
+
+# Save the PID of the background process
+echo $! > "$DEBOUNCE_PID_FILE"
