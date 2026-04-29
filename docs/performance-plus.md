@@ -24,10 +24,11 @@ Q (power-saver) → B (balanced) → P (performance) → ⚡ U (ultra) → Q
 Sets the following via `ryzenadj` on top of the `performance` base profile:
 
 ```
---fast-limit=120000      # PPT fast limit: 120W  (plugged in)
+--stapm-limit=120000     # STAPM limit: 120W     (sustained power)
+--fast-limit=120000      # PPT fast limit: 120W  (burst power)
 --slow-limit=85000       # PPT slow limit: 85W   (plugged in)
 --apu-slow-limit=85000   # APU slow limit: 85W   (plugged in)
---tctl-temp=95           # Thermal limit: 95°C
+--tctl-temp=90           # Thermal limit: 90°C
 --set-coall=0x0fffd8     # Curve Optimizer: -40 all-core
 ```
 
@@ -40,8 +41,22 @@ is active.
 ### What Quiet (Q) does
 
 Quiet uses the stock `power-saver` profile limits (55 W fast / 40 W slow,
-plugged in). In addition, the `-40` all-core Curve Optimizer is applied
-2 seconds after switching to Q, and re-applied after suspend/resume.
+plugged in). After a 3-second debounced tuning delay, it applies
+`--tctl-temp=60 --set-coall=0x0fffd8` if Ultra is not active and the current
+profile is still `power-saver`.
+
+### What Balanced (B) does
+
+Balanced uses the stock `balanced` profile limits (71 W fast / 52 W slow,
+plugged in). After the same debounced tuning delay, it applies
+`--tctl-temp=75 --set-coall=0x0fffd8` if Ultra is not active and the current
+profile is still `balanced`.
+
+### What Performance (P) does
+
+Performance uses the stock `performance` profile limits. After the same
+debounced tuning delay, it applies `--tctl-temp=85 --set-coall=0x0fffd8` if
+Ultra is not active and the current profile is still `performance`.
 
 ---
 
@@ -58,7 +73,6 @@ plugged in). In addition, the `-40` all-core Curve Optimizer is applied
 | `/lib/systemd/system-sleep/performance-plus` | Installed sleep hook (re-applies on resume) |
 | `/usr/lib/performance-plus/ac-hook` | Installed AC hook (re-applies on AC plug-in) |
 | `/etc/udev/rules.d/99-performance-plus-ac.rules` | Udev rule triggering AC hook on power change |
-| `/etc/systemd/system/performance-plus-boot.service` | Boot service (re-applies on boot if Ultra active) |
 | `/etc/tmpfiles.d/ryzenadj.conf` | Provisions `/run/ryzenadj/` (0777) at boot for shared lock files |
 | `/var/lib/performance-plus/active` | Flag file — exists = Ultra is active |
 | `/etc/sudoers.d/performance-plus` | Passwordless sudo rules for the above |
@@ -101,9 +115,14 @@ the first immediately, then one more ~3s later with the final args.
 ### Read path (`-i`)
 
 Info reads are treated differently — they must never block or queue:
-- If the lock is free: run live, update `/run/ryzenadj/cache`, return output
+- If the lock is free: run live and update `/run/ryzenadj/cache`, return output
 - If the lock is held (write in progress): return `/run/ryzenadj/cache`
   immediately
+
+**Cache coherency during writes:** When a write is queued or starts, the wrapper
+updates the cached limit fields (STAPM, PPT FAST/SLOW, APU SLOW, Tctl) to match
+the pending arguments. This prevents Waybar from showing stale limits (e.g.,
+`86W`) during the cooldown window while ensuring reads never block.
 
 This means Waybar's 10-second status poll never contends with a profile switch.
 
@@ -181,8 +200,89 @@ CACHE=$RUNDIR/cache
 PENDING=$RUNDIR/pending
 RETRY_LOCK=$RUNDIR/retry
 
+format_mw_limit() {
+    local raw=$1
+    printf '%d.%03d' "$(( raw / 1000 ))" "$(( raw % 1000 ))"
+}
+
+format_plain_limit() {
+    local raw=$1
+    printf '%d.000' "$raw"
+}
+
+update_cached_limits() {
+    local stapm_limit=""
+    local fast_limit=""
+    local slow_limit=""
+    local apu_slow_limit=""
+    local tctl_temp=""
+    local arg
+    local tmp_cache
+
+    [[ -f "$CACHE" ]] || return 0
+
+    for arg in "$@"; do
+        case "$arg" in
+            --stapm-limit=*) stapm_limit=$(format_mw_limit "${arg#*=}") ;;
+            --fast-limit=*) fast_limit=$(format_mw_limit "${arg#*=}") ;;
+            --slow-limit=*) slow_limit=$(format_mw_limit "${arg#*=}") ;;
+            --apu-slow-limit=*) apu_slow_limit=$(format_mw_limit "${arg#*=}") ;;
+            --tctl-temp=*) tctl_temp=$(format_plain_limit "${arg#*=}") ;;
+        esac
+    done
+
+    [[ -n "$stapm_limit$fast_limit$slow_limit$apu_slow_limit$tctl_temp" ]] || return 0
+
+    tmp_cache="${CACHE}.tmp.$$"
+    awk -F'|' \
+        -v stapm_limit="$stapm_limit" \
+        -v fast_limit="$fast_limit" \
+        -v slow_limit="$slow_limit" \
+        -v apu_slow_limit="$apu_slow_limit" \
+        -v tctl_temp="$tctl_temp" '
+        BEGIN { OFS = "|" }
+
+        function trim(value) {
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+            return value
+        }
+
+        function format_field(value) {
+            return sprintf(" %10s ", value)
+        }
+
+        /^\|/ {
+            name = trim($2)
+
+            if (name == "STAPM LIMIT" && stapm_limit != "") {
+                $3 = format_field(stapm_limit)
+            } else if (name == "PPT LIMIT FAST" && fast_limit != "") {
+                $3 = format_field(fast_limit)
+            } else if (name == "PPT LIMIT SLOW" && slow_limit != "") {
+                $3 = format_field(slow_limit)
+            } else if (name == "PPT LIMIT APU" && apu_slow_limit != "") {
+                $3 = format_field(apu_slow_limit)
+            } else if (name == "THM LIMIT CORE" && tctl_temp != "") {
+                $3 = format_field(tctl_temp)
+            } else if ((name == "STT LIMIT APU" || name == "STT LIMIT dGPU") && tctl_temp != "") {
+                $3 = format_field(tctl_temp)
+            }
+
+            print $1, $2, $3, $4
+            next
+        }
+
+        { print }
+    ' "$CACHE" > "$tmp_cache" && mv "$tmp_cache" "$CACHE"
+}
+
 # Guard: ensure runtime dir exists (tmpfiles.d creates it on boot, but be safe)
 mkdir -p "$RUNDIR" && chmod 0777 "$RUNDIR" 2>/dev/null || true
+ensure_rw_file "$LOCKFILE"
+ensure_rw_file "$CACHE"
+ensure_rw_file "$PENDING"
+ensure_rw_file "$TIMESTAMP"
+ensure_rw_file "$RETRY_LOCK"
 COOLDOWN=3  # seconds between write calls
 
 # ── Info / read path ─────────────────────────────────────────────────────────
@@ -218,6 +318,7 @@ if [[ -f "$TIMESTAMP" ]]; then
         REMAINING=$(( COOLDOWN - ELAPSED ))
         echo "ryzenadj: cooldown active, queuing for retry in ${REMAINING}s" >&2
         printf '%s\0' "$@" > "$PENDING"
+        update_cached_limits "$@"
         exec 8>"$RETRY_LOCK"
         if flock --nonblock 8; then
             (
@@ -239,6 +340,7 @@ exec 9>"$LOCKFILE"
 if ! flock --nonblock 9; then
     echo "ryzenadj: locked, queuing" >&2
     printf '%s\0' "$@" > "$PENDING"
+    update_cached_limits "$@"
     exec 8>"$RETRY_LOCK"
     if flock --nonblock 8; then
         (
@@ -256,6 +358,7 @@ fi
 
 # Lock acquired — run
 rm -f "$PENDING"
+update_cached_limits "$@"
 date +%s > "$TIMESTAMP"
 sudo "$REAL" "$@"
 STATUS=$?
@@ -267,72 +370,23 @@ exit $STATUS
 
 ### `~/.config/waybar/scripts/power-profile-toggle.sh`
 
-```bash
-#!/bin/bash
-#
-# power-profile-toggle.sh
-#
-# Cycles: power-saver -> balanced -> performance -> ultra -> power-saver
-#
-STATE_FILE="/var/lib/performance-plus/active"
-WAYBAR_SIGNAL=13
+The toggle script cycles `Q -> B -> P -> U -> Q`.
 
-# Function to apply Ultra settings
-apply_ultra_settings() {
-    "$HOME/.local/bin/ryzenadj" \
-        --fast-limit=120000 \
-        --slow-limit=85000 \
-        --apu-slow-limit=85000 \
-        --tctl-temp=95 \
-        --set-coall=0x0fffd8
-}
+- `Q/B/P` switch immediately through `powerprofilesctl`, then schedule one
+  debounced `ryzenadj` tuning call after 3 seconds.
+- The delayed tuning is skipped if Ultra is active or if the current stock
+  profile no longer matches the queued profile.
+- `U` applies Ultra immediately and re-applies after 3s and 9s, but delayed
+  Ultra re-applies are skipped if Ultra is no longer active.
 
-# Function to apply undervolt
-apply_undervolt() {
-    "$HOME/.local/bin/ryzenadj" --set-coall=0x0fffd8
-}
+Per-profile delayed tuning:
 
-CURRENT_PROFILE=$(powerprofilesctl get 2>/dev/null || echo "balanced")
-ULTRA_ACTIVE=false
-[[ -f "$STATE_FILE" ]] && ULTRA_ACTIVE=true
-
-# Determine next mode
-if $ULTRA_ACTIVE; then
-    NEXT="power-saver"
-elif [[ "$CURRENT_PROFILE" == "performance" ]]; then
-    NEXT="ultra"
-elif [[ "$CURRENT_PROFILE" == "balanced" ]]; then
-    NEXT="performance"
-elif [[ "$CURRENT_PROFILE" == "power-saver" ]]; then
-    NEXT="balanced"
-else
-    NEXT="balanced"
-fi
-
-# Apply next mode
-if [[ "$NEXT" == "ultra" ]]; then
-    powerprofilesctl set performance
-    sudo mkdir -p /var/lib/performance-plus
-    sudo touch "$STATE_FILE"
-    # Apply immediately, then re-apply after delays to ensure settings stick
-    # (power-profiles-daemon and asusd may reset PPT limits shortly after)
-    apply_ultra_settings
-    (sleep 3 && apply_ultra_settings) &
-    (sleep 9 && apply_ultra_settings) &
-else
-    if $ULTRA_ACTIVE; then
-        sudo rm -f "$STATE_FILE"
-    fi
-    powerprofilesctl set "$NEXT"
-    # Apply undervolt after switching to power-saver (Q)
-    if [[ "$NEXT" == "power-saver" ]]; then
-        apply_undervolt
-        (sleep 3 && apply_undervolt) &
-    fi
-fi
-
-pkill -RTMIN+$WAYBAR_SIGNAL waybar 2>/dev/null || true
-```
+| Profile | Delayed ryzenadj args |
+|---------|-----------------------|
+| `power-saver` | `--tctl-temp=60 --set-coall=0x0fffd8` |
+| `balanced` | `--tctl-temp=75 --set-coall=0x0fffd8` |
+| `performance` | `--tctl-temp=85 --set-coall=0x0fffd8` |
+| `ultra` | `--stapm-limit=120000 --fast-limit=120000 --slow-limit=85000 --apu-slow-limit=85000 --tctl-temp=90 --set-coall=0x0fffd8` |
 
 ---
 
@@ -409,102 +463,10 @@ sudo cp ~/.config/waybar/scripts/performance-plus-sleep-hook \
 sudo chmod 755 /lib/systemd/system-sleep/performance-plus
 ```
 
-### Boot service — `/etc/systemd/system/performance-plus-boot.service`
-
-Re-applies Ultra ryzenadj settings on boot if the state file exists (survives reboots).
-
-Installed via:
-```bash
-sudo cp ~/.config/waybar/scripts/performance-plus-boot.service \
-    /etc/systemd/system/performance-plus-boot.service
-sudo systemctl daemon-reload
-sudo systemctl enable performance-plus-boot.service
-```
-
-```ini
-[Unit]
-Description=Performance Plus (Ultra) - Re-apply ryzenadj on boot
-After=multi-user.target
-ConditionPathExists=/var/lib/performance-plus/active
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-Environment="RYZENADJ=/home/naomarik/.local/bin/ryzenadj"
-Environment="STATE_FILE=/var/lib/performance-plus/active"
-ExecStart=/bin/bash -c '\
-    apply_ultra() { \
-        "$RYZENADJ" --fast-limit=120000 --slow-limit=85000 --apu-slow-limit=85000 --tctl-temp=95 --set-coall=0x0fffd8; \
-    }; \
-    apply_ultra; \
-    (sleep 3 && apply_ultra) & \
-    (sleep 9 && apply_ultra) & \
-    wait'
-
-[Install]
-WantedBy=multi-user.target
-```
-
----
-
-```bash
-#!/bin/bash
-#
-# /lib/systemd/system-sleep/performance-plus
-#
-# Systemd sleep hook that re-applies Performance Plus (Ultra) ryzenadj
-# settings after resume from suspend/hibernate.
-#
-# Called by systemd with: $1 = pre|post, $2 = suspend|hibernate|hybrid-sleep|suspend-then-hibernate
-#
-# Only runs ryzenadj on POST (resume), never on pre-suspend.
-# The throttle in the ryzenadj wrapper prevents rapid re-application.
-#
-# Why apply multiple times? asusd runs on_prepare_for_sleep(false) at the same
-# time as this hook and may reset platform PPT limits shortly after resume.
-# We apply immediately, then re-apply at 3s and 9s to ensure our 120W limits stick.
-#
-
-RYZENADJ="${RYZENADJ:-/home/naomarik/.local/bin/ryzenadj}"
-STATE_FILE="/var/lib/performance-plus/active"
-
-# Function to apply Ultra settings
-apply_ultra_settings() {
-    "$RYZENADJ" \
-        --fast-limit=120000 \
-        --slow-limit=85000 \
-        --apu-slow-limit=85000 \
-        --tctl-temp=95 \
-        --set-coall=0x0fffd8
-}
-
-# Function to apply undervolt for power-saver mode
-apply_undervolt() {
-    "$RYZENADJ" --set-coall=0x0fffd8
-}
-
-case "$1" in
-    post)
-        # Re-apply Ultra ryzenadj settings if Ultra mode is active
-        if [[ -f "$STATE_FILE" ]]; then
-            # Apply immediately after resume (asusd may reset shortly after)
-            apply_ultra_settings
-            # Wait 3s and re-apply to override asusd's platform profile reset
-            (sleep 3 && apply_ultra_settings) &
-            # Wait 6s more and verify/re-apply one more time to ensure it sticks
-            (sleep 9 && apply_ultra_settings) &
-        # Re-apply undervolt if power-saver (Q) is active
-        elif [[ "$(powerprofilesctl get 2>/dev/null)" == "power-saver" ]]; then
-            apply_undervolt
-            (sleep 3 && apply_undervolt) &
-            (sleep 9 && apply_undervolt) &
-        fi
-        ;;
-    pre)
-        # Nothing to do before suspend
-        ;;
-esac
-```
+The installed sleep hook is copied from
+`~/.config/waybar/scripts/performance-plus-sleep-hook`. It re-applies Ultra at
+`90C` after resume only when `/var/lib/performance-plus/active` exists, and
+otherwise applies only the curve optimizer when resuming into `power-saver`.
 
 ---
 
@@ -558,7 +520,7 @@ systemd-run --no-block bash -c "
         --fast-limit=120000 \
         --slow-limit=85000 \
         --apu-slow-limit=85000 \
-        --tctl-temp=95 \
+        --tctl-temp=90 \
         --set-coall=0x0fffd8
 "
 ```

@@ -8,46 +8,26 @@
 # Called by systemd with: $1 = pre|post, $2 = suspend|hibernate|hybrid-sleep|suspend-then-hibernate
 #
 # Only runs ryzenadj on POST (resume), never on pre-suspend.
-# The throttle in ryzenadj-safe prevents rapid re-application.
+# The throttle in ~/.local/bin/ryzenadj prevents rapid re-application.
 #
-
-# Path to the ryzenadj wrapper (~/.local/bin/ryzenadj) — must be absolute
-# since this hook runs as root and $HOME resolves to /root.
-# Update this to match your user's home directory.
-RYZENADJ="${RYZENADJ:-/home/naomarik/.local/bin/ryzenadj}"
 
 STATE_FILE="/var/lib/performance-plus/active"
 
-# Function to apply Ultra settings
-apply_ultra_settings() {
-    "$RYZENADJ" \
-        --fast-limit=120000 \
-        --slow-limit=85000 \
-        --apu-slow-limit=85000 \
-        --tctl-temp=95 \
-        --set-coall=0x0fffd8
-}
-
-# Function to apply undervolt for power-saver mode
-apply_undervolt() {
-    "$RYZENADJ" --set-coall=0x0fffd8
-}
-
 case "$1" in
     post)
+        # Small delay to let the system fully wake before hitting the hardware
+        sleep 2
         # Re-apply Ultra ryzenadj settings if Ultra mode is active
         if [[ -f "$STATE_FILE" ]]; then
-            # Apply immediately after resume (asusd may reset shortly after)
-            apply_ultra_settings
-            # Wait 3s and re-apply to override asusd's platform profile reset
-            (sleep 3 && apply_ultra_settings) &
-            # Wait 6s more and verify/re-apply one more time to ensure it sticks
-            (sleep 9 && apply_ultra_settings) &
+            /home/naomarik/.local/bin/ryzenadj \
+                --fast-limit=120000 \
+                --slow-limit=85000 \
+                --apu-slow-limit=85000 \
+                --tctl-temp=90 \
+                --set-coall=0x0fffd8
         # Re-apply undervolt if power-saver (Q) is active
         elif [[ "$(powerprofilesctl get 2>/dev/null)" == "power-saver" ]]; then
-            apply_undervolt
-            (sleep 3 && apply_undervolt) &
-            (sleep 9 && apply_undervolt) &
+            /home/naomarik/.local/bin/ryzenadj --set-coall=0x0fffd8
         fi
         ;;
     pre)

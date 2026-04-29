@@ -103,15 +103,16 @@ Profile limits reported by `ryzenadj -i` on this machine (plugged in):
 
 | Profile | PPT fast | PPT slow | Tctl |
 |---|---|---|---|
-| Quiet (`Q`) | 55 W | 40 W | default |
-| Balanced (`B`) | 71 W | 52 W | default |
-| Performance (`P`) | 86 W | 70 W | default |
-| Ultra (`U`) | 120 W | 85 W | 95 C |
+| Quiet (`Q`) | 55 W | 40 W | 60 C after tuning delay |
+| Balanced (`B`) | 71 W | 52 W | 75 C after tuning delay |
+| Performance (`P`) | 86 W | 70 W | 85 C after tuning delay |
+| Ultra (`U`) | 120 W | 85 W | 90 C |
 
 > Values are lower on battery — these are AC/plugged-in readings.
 
 Ultra also applies a `-40` all-core Curve Optimizer (`--set-coall=0x0fffd8`).
-Quiet also applies the same Curve Optimizer 2 seconds after switching.
+Quiet, Balanced, and Performance apply the same Curve Optimizer after a 3-second
+debounced tuning delay, as long as Ultra is not active.
 
 The Waybar module cycles `Q -> B -> P -> U -> Q` on click and reports live
 STAPM watts.
@@ -215,17 +216,12 @@ cp waybar/config.jsonc waybar/style.css ~/.config/waybar/
 cp -r waybar/scripts ~/.config/waybar/scripts/
 ```
 
-If you use Performance Plus, also install the resume hook and boot service:
+If you use Performance Plus, also install the resume hook:
 
 ```bash
 # Resume hook (re-applies on wake from suspend)
 sudo cp waybar/scripts/performance-plus-sleep-hook /lib/systemd/system-sleep/performance-plus
 sudo chmod +x /lib/systemd/system-sleep/performance-plus
-
-# Boot service (re-applies on boot if Ultra was active)
-sudo cp waybar/scripts/performance-plus-boot.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable performance-plus-boot.service
 ```
 
 ## Audio presets (EasyEffects)

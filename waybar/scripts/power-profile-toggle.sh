@@ -2,28 +2,98 @@
 #
 # power-profile-toggle.sh
 #
-# Cycles: power-saver -> balanced -> performance -> ultra -> power-saver
+# Cycles: power-saver (Q) -> balanced (B) -> performance (P) -> ultra (U) -> power-saver
 #
-STATE_FILE="/var/lib/performance-plus/active"
+# Q/B/P: stock power-profiles-daemon profiles, then debounced thermal limit + undervolt
+# U: 90C TCTL, full PPT, undervolt
+#
+STATE_FILE="${POWER_PROFILE_STATE_FILE:-/var/lib/performance-plus/active}"
 WAYBAR_SIGNAL=13
 
-# Function to apply Ultra settings
+RYZENADJ="$HOME/.local/bin/ryzenadj"
+POWERPROFILESCTL="${POWERPROFILESCTL:-powerprofilesctl}"
+SUDO="${SUDO:-sudo}"
+RUNDIR="${XDG_RUNTIME_DIR:-/tmp}/power-profile-toggle"
+TUNING_PENDING="$RUNDIR/pending-tuning-profile"
+TUNING_DEADLINE="$RUNDIR/tuning-deadline-ms"
+TUNING_LOCK="$RUNDIR/tuning.lock"
+TUNING_DELAY_MS="${POWER_PROFILE_TUNING_DELAY_MS:-3000}"
+
+mkdir -p "$RUNDIR"
+
 apply_ultra_settings() {
-    "$HOME/.local/bin/ryzenadj" \
+    "$RYZENADJ" \
         --stapm-limit=120000 \
         --fast-limit=120000 \
         --slow-limit=85000 \
         --apu-slow-limit=85000 \
-        --tctl-temp=95 \
+        --tctl-temp=90 \
         --set-coall=0x0fffd8
 }
 
-# Function to apply undervolt
-apply_undervolt() {
-    "$HOME/.local/bin/ryzenadj" --set-coall=0x0fffd8
+apply_ultra_settings_if_active() {
+    [[ -f "$STATE_FILE" ]] || exit 0
+    apply_ultra_settings
 }
 
-CURRENT_PROFILE=$(powerprofilesctl get 2>/dev/null || echo "balanced")
+clear_pending_tuning() {
+    rm -f "$TUNING_PENDING" "$TUNING_DEADLINE"
+}
+
+now_ms() {
+    date +%s%3N
+}
+
+apply_tuning_if_current() {
+    local profile=$1
+    local tctl
+
+    [[ ! -f "$STATE_FILE" ]] || exit 0
+    [[ "$("$POWERPROFILESCTL" get 2>/dev/null)" == "$profile" ]] || exit 0
+
+    case "$profile" in
+        power-saver) tctl=60 ;;
+        balanced) tctl=75 ;;
+        performance) tctl=85 ;;
+        *) exit 0 ;;
+    esac
+
+    "$RYZENADJ" --tctl-temp="$tctl" --set-coall=0x0fffd8
+}
+
+schedule_tuning() {
+    local profile=$1
+
+    printf '%s\n' "$profile" > "$TUNING_PENDING"
+    printf '%s\n' "$(( $(now_ms) + TUNING_DELAY_MS ))" > "$TUNING_DEADLINE"
+
+    (
+        local deadline
+        local pending_profile
+        local remaining
+
+        exec 8>"$TUNING_LOCK"
+        flock --nonblock 8 || exit 0
+
+        while true; do
+            [[ -s "$TUNING_DEADLINE" ]] || exit 0
+            deadline=$(<"$TUNING_DEADLINE")
+            remaining=$(( deadline - $(now_ms) ))
+
+            (( remaining <= 0 )) && break
+            sleep "$(printf '%d.%03d' "$(( remaining / 1000 ))" "$(( remaining % 1000 ))")"
+        done
+
+        [[ -s "$TUNING_PENDING" ]] || exit 0
+        pending_profile=$(<"$TUNING_PENDING")
+        clear_pending_tuning
+
+        apply_tuning_if_current "$pending_profile"
+        flock --unlock 8
+    ) &
+}
+
+CURRENT_PROFILE=$("$POWERPROFILESCTL" get 2>/dev/null || echo "balanced")
 ULTRA_ACTIVE=false
 [[ -f "$STATE_FILE" ]] && ULTRA_ACTIVE=true
 
@@ -42,24 +112,19 @@ fi
 
 # Apply next mode
 if [[ "$NEXT" == "ultra" ]]; then
-    powerprofilesctl set performance
-    sudo mkdir -p /var/lib/performance-plus
-    sudo touch "$STATE_FILE"
-    # Apply immediately, then re-apply after delays to ensure settings stick
-    # (power-profiles-daemon and asusd may reset PPT limits shortly after)
+    clear_pending_tuning
+    "$POWERPROFILESCTL" set performance
+    "$SUDO" mkdir -p "$(dirname "$STATE_FILE")"
+    "$SUDO" touch "$STATE_FILE"
     apply_ultra_settings
-    (sleep 3 && apply_ultra_settings) &
-    (sleep 9 && apply_ultra_settings) &
+    (sleep 3 && apply_ultra_settings_if_active) &
+    (sleep 9 && apply_ultra_settings_if_active) &
 else
     if $ULTRA_ACTIVE; then
-        sudo rm -f "$STATE_FILE"
+        "$SUDO" rm -f "$STATE_FILE"
     fi
-    powerprofilesctl set "$NEXT"
-    # Apply undervolt after switching to power-saver (Q) or balanced (B)
-    if [[ "$NEXT" == "power-saver" || "$NEXT" == "balanced" ]]; then
-        apply_undervolt
-        (sleep 3 && apply_undervolt) &
-    fi
+    "$POWERPROFILESCTL" set "$NEXT"
+    schedule_tuning "$NEXT"
 fi
 
 pkill -RTMIN+$WAYBAR_SIGNAL waybar 2>/dev/null || true
