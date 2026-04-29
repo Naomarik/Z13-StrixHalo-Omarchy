@@ -23,7 +23,6 @@ case "$1" in
                 --fast-limit=120000 \
                 --slow-limit=85000 \
                 --apu-slow-limit=85000 \
-                --tctl-temp=90 \
                 --set-coall=0x0fffd8
         # Re-apply undervolt if power-saver (Q) is active
         elif [[ "$(powerprofilesctl get 2>/dev/null)" == "power-saver" ]]; then

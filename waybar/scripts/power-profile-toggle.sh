@@ -4,8 +4,8 @@
 #
 # Cycles: power-saver (Q) -> balanced (B) -> performance (P) -> ultra (U) -> power-saver
 #
-# Q/B/P: stock power-profiles-daemon profiles, then debounced thermal limit + undervolt
-# U: 90C TCTL, full PPT, undervolt
+# Q/B/P: stock power-profiles-daemon profiles, then debounced undervolt
+# U: full PPT, undervolt
 #
 STATE_FILE="${POWER_PROFILE_STATE_FILE:-/var/lib/performance-plus/active}"
 WAYBAR_SIGNAL=13
@@ -27,7 +27,6 @@ apply_ultra_settings() {
         --fast-limit=120000 \
         --slow-limit=85000 \
         --apu-slow-limit=85000 \
-        --tctl-temp=90 \
         --set-coall=0x0fffd8
 }
 
@@ -46,19 +45,16 @@ now_ms() {
 
 apply_tuning_if_current() {
     local profile=$1
-    local tctl
 
     [[ ! -f "$STATE_FILE" ]] || exit 0
     [[ "$("$POWERPROFILESCTL" get 2>/dev/null)" == "$profile" ]] || exit 0
 
     case "$profile" in
-        power-saver) tctl=60 ;;
-        balanced) tctl=75 ;;
-        performance) tctl=85 ;;
+        power-saver|balanced|performance) ;;
         *) exit 0 ;;
     esac
 
-    "$RYZENADJ" --tctl-temp="$tctl" --set-coall=0x0fffd8
+    "$RYZENADJ" --set-coall=0x0fffd8
 }
 
 schedule_tuning() {

@@ -28,7 +28,6 @@ Sets the following via `ryzenadj` on top of the `performance` base profile:
 --fast-limit=120000      # PPT fast limit: 120W  (burst power)
 --slow-limit=85000       # PPT slow limit: 85W   (plugged in)
 --apu-slow-limit=85000   # APU slow limit: 85W   (plugged in)
---tctl-temp=90           # Thermal limit: 90°C
 --set-coall=0x0fffd8     # Curve Optimizer: -40 all-core
 ```
 
@@ -42,21 +41,21 @@ is active.
 
 Quiet uses the stock `power-saver` profile limits (55 W fast / 40 W slow,
 plugged in). After a 3-second debounced tuning delay, it applies
-`--tctl-temp=60 --set-coall=0x0fffd8` if Ultra is not active and the current
-profile is still `power-saver`.
+`--set-coall=0x0fffd8` if Ultra is not active and the current profile is still
+`power-saver`.
 
 ### What Balanced (B) does
 
 Balanced uses the stock `balanced` profile limits (71 W fast / 52 W slow,
 plugged in). After the same debounced tuning delay, it applies
-`--tctl-temp=75 --set-coall=0x0fffd8` if Ultra is not active and the current
-profile is still `balanced`.
+`--set-coall=0x0fffd8` if Ultra is not active and the current profile is still
+`balanced`.
 
 ### What Performance (P) does
 
 Performance uses the stock `performance` profile limits. After the same
-debounced tuning delay, it applies `--tctl-temp=85 --set-coall=0x0fffd8` if
-Ultra is not active and the current profile is still `performance`.
+debounced tuning delay, it applies `--set-coall=0x0fffd8` if Ultra is not active
+and the current profile is still `performance`.
 
 ---
 
@@ -383,10 +382,10 @@ Per-profile delayed tuning:
 
 | Profile | Delayed ryzenadj args |
 |---------|-----------------------|
-| `power-saver` | `--tctl-temp=60 --set-coall=0x0fffd8` |
-| `balanced` | `--tctl-temp=75 --set-coall=0x0fffd8` |
-| `performance` | `--tctl-temp=85 --set-coall=0x0fffd8` |
-| `ultra` | `--stapm-limit=120000 --fast-limit=120000 --slow-limit=85000 --apu-slow-limit=85000 --tctl-temp=90 --set-coall=0x0fffd8` |
+| `power-saver` | `--set-coall=0x0fffd8` |
+| `balanced` | `--set-coall=0x0fffd8` |
+| `performance` | `--set-coall=0x0fffd8` |
+| `ultra` | `--stapm-limit=120000 --fast-limit=120000 --slow-limit=85000 --apu-slow-limit=85000 --set-coall=0x0fffd8` |
 
 ---
 
@@ -464,9 +463,9 @@ sudo chmod 755 /lib/systemd/system-sleep/performance-plus
 ```
 
 The installed sleep hook is copied from
-`~/.config/waybar/scripts/performance-plus-sleep-hook`. It re-applies Ultra at
-`90C` after resume only when `/var/lib/performance-plus/active` exists, and
-otherwise applies only the curve optimizer when resuming into `power-saver`.
+`~/.config/waybar/scripts/performance-plus-sleep-hook`. It re-applies Ultra
+after resume only when `/var/lib/performance-plus/active` exists, and otherwise
+applies only the curve optimizer when resuming into `power-saver`.
 
 ---
 
@@ -520,7 +519,6 @@ systemd-run --no-block bash -c "
         --fast-limit=120000 \
         --slow-limit=85000 \
         --apu-slow-limit=85000 \
-        --tctl-temp=90 \
         --set-coall=0x0fffd8
 "
 ```
