@@ -23,10 +23,15 @@ case "$1" in
                 --fast-limit=120000 \
                 --slow-limit=85000 \
                 --apu-slow-limit=85000 \
-                --set-coall=0x0fffd8
-        # Re-apply undervolt if power-saver (Q) is active
-        elif [[ "$(powerprofilesctl get 2>/dev/null)" == "power-saver" ]]; then
-            /home/naomarik/.local/bin/ryzenadj --set-coall=0x0fffd8
+                --set-coall=0x0FFFF1
+        # Re-apply the per-profile undervolt for the non-Ultra profiles. The CO
+        # offset does not survive suspend, so it must be reasserted on resume.
+        else
+            case "$(powerprofilesctl get 2>/dev/null)" in
+                # performance boosts clocks/voltage, so it needs a milder undervolt
+                performance)          /home/naomarik/.local/bin/ryzenadj --set-coall=0x0fffdd ;;  # -35
+                balanced|power-saver) /home/naomarik/.local/bin/ryzenadj --set-coall=0x0fffd8 ;;  # -40
+            esac
         fi
         ;;
     pre)

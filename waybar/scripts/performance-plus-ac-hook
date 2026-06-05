@@ -26,5 +26,5 @@ systemd-run --no-block bash -c "
         --fast-limit=120000 \
         --slow-limit=85000 \
         --apu-slow-limit=85000 \
-        --set-coall=0x0fffd8
+        --set-coall=0x0ffff1
 "

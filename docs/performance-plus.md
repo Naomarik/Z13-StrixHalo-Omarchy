@@ -28,9 +28,14 @@ Sets the following via `ryzenadj` on top of the `performance` base profile:
 --fast-limit=120000      # PPT fast limit: 120W  (burst power)
 --slow-limit=85000       # PPT slow limit: 85W   (plugged in)
 --apu-slow-limit=85000   # APU slow limit: 85W   (plugged in)
---set-coall=0x0fffd8     # Curve Optimizer: -40 all-core
+--set-coall=0x0ffff1     # Curve Optimizer: -15 all-core (milder for stability at high wattage)
 ```
 
+> **Why -15 instead of -40?** The combination of raised PPT limits (120 W) and
+> the -40 Curve Optimizer used on stock profiles caused system instability under
+> heavy all-core load on this machine. Ultra uses a conservative -15 undervolt
+> to remain stable while still benefiting from the higher power budget.
+>
 > All PPT values are measured/applied while plugged in (AC). On battery the
 > firmware enforces lower limits regardless of what ryzenadj sets.
 
@@ -54,8 +59,17 @@ plugged in). After the same debounced tuning delay, it applies
 ### What Performance (P) does
 
 Performance uses the stock `performance` profile limits. After the same
-debounced tuning delay, it applies `--set-coall=0x0fffd8` if Ultra is not active
-and the current profile is still `performance`.
+debounced tuning delay, it applies `--set-coall=0x0fffdd` (**-35**) if Ultra is
+not active and the current profile is still `performance`.
+
+> **Why -35 instead of -40?** The `performance` platform profile raises
+> sustained clocks and boost voltage, which shrinks the undervolt margin. The
+> -40 offset that is stable on `balanced`/`power-saver` (which ran for 7+ days
+> without issue) destabilized the SoC on `performance`: after a resume the SMU
+> stopped responding during a GPU power-gating transition
+> (`Failed to power gate VPE` / `Failed to disable gfxoff`), wedging the GPU and
+> blanking the screen. The milder -35 offset restores headroom at the higher
+> performance operating point.
 
 ---
 
@@ -382,10 +396,10 @@ Per-profile delayed tuning:
 
 | Profile | Delayed ryzenadj args |
 |---------|-----------------------|
-| `power-saver` | `--set-coall=0x0fffd8` |
-| `balanced` | `--set-coall=0x0fffd8` |
-| `performance` | `--set-coall=0x0fffd8` |
-| `ultra` | `--stapm-limit=120000 --fast-limit=120000 --slow-limit=85000 --apu-slow-limit=85000 --set-coall=0x0fffd8` |
+| `power-saver` | `--set-coall=0x0fffd8` (-40) |
+| `balanced` | `--set-coall=0x0fffd8` (-40) |
+| `performance` | `--set-coall=0x0fffdd` (-35) |
+| `ultra` | `--stapm-limit=120000 --fast-limit=120000 --slow-limit=85000 --apu-slow-limit=85000 --set-coall=0x0ffff1` (-15) |
 
 ---
 
@@ -463,9 +477,12 @@ sudo chmod 755 /lib/systemd/system-sleep/performance-plus
 ```
 
 The installed sleep hook is copied from
-`~/.config/waybar/scripts/performance-plus-sleep-hook`. It re-applies Ultra
-after resume only when `/var/lib/performance-plus/active` exists, and otherwise
-applies only the curve optimizer when resuming into `power-saver`.
+`~/.config/waybar/scripts/performance-plus-sleep-hook`. The Curve Optimizer
+offset does not survive suspend, so the hook reasserts it on every resume: it
+re-applies the full Ultra settings when `/var/lib/performance-plus/active`
+exists, and otherwise re-applies the per-profile undervolt for the active
+non-Ultra profile (`performance` → -35 `0x0fffdd`, `balanced`/`power-saver` →
+-40 `0x0fffd8`).
 
 ---
 
@@ -519,7 +536,7 @@ systemd-run --no-block bash -c "
         --fast-limit=120000 \
         --slow-limit=85000 \
         --apu-slow-limit=85000 \
-        --set-coall=0x0fffd8
+        --set-coall=0x0ffff1
 "
 ```
 

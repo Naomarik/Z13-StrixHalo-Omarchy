@@ -27,7 +27,7 @@ apply_ultra_settings() {
         --fast-limit=120000 \
         --slow-limit=85000 \
         --apu-slow-limit=85000 \
-        --set-coall=0x0fffd8
+        --set-coall=0x0ffff1
 }
 
 apply_ultra_settings_if_active() {
@@ -50,11 +50,11 @@ apply_tuning_if_current() {
     [[ "$("$POWERPROFILESCTL" get 2>/dev/null)" == "$profile" ]] || exit 0
 
     case "$profile" in
-        power-saver|balanced|performance) ;;
+        # performance boosts clocks/voltage, so it needs a milder undervolt
+        performance)             "$RYZENADJ" --set-coall=0x0fffdd ;;  # -35
+        power-saver|balanced)    "$RYZENADJ" --set-coall=0x0fffd8 ;;  # -40
         *) exit 0 ;;
     esac
-
-    "$RYZENADJ" --set-coall=0x0fffd8
 }
 
 schedule_tuning() {

@@ -110,10 +110,18 @@ Profile limits reported by `ryzenadj -i` on this machine (plugged in):
 
 > Values are lower on battery — these are AC/plugged-in readings.
 
-Ultra also applies a `-40` all-core Curve Optimizer (`--set-coall=0x0fffd8`).
-Quiet, Balanced, and Performance apply the same Curve Optimizer after a 3-second
-debounced tuning delay, as long as Ultra is not active. No profile manually caps
-Tctl; thermal limits are left to the platform defaults.
+Ultra applies a milder **-15** all-core Curve Optimizer (`--set-coall=0x0ffff1`)
+instead of the -40 used on other profiles. The combination of raised PPT limits
+(120 W) and a large undervolt caused instability on this machine, so Ultra uses
+a conservative undervolt to stay stable under heavy all-core load.
+
+Quiet and Balanced apply a **-40** Curve Optimizer (`--set-coall=0x0fffd8`)
+after a 3-second debounced tuning delay, as long as Ultra is not active.
+Performance uses a milder **-35** (`--set-coall=0x0fffdd`) because its raised
+clocks/boost voltage shrink the undervolt margin (a -40 offset destabilized the
+SoC on resume). No profile manually caps Tctl; thermal limits are left to the
+platform defaults. The resume hook reasserts each profile's offset after
+suspend, since the Curve Optimizer does not survive a sleep cycle.
 
 The Waybar module cycles `Q -> B -> P -> U -> Q` on click and reports live
 STAPM watts.
