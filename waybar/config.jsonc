@@ -82,14 +82,21 @@
     "tooltip": false,
     "on-click-right": "omarchy-launch-floating-terminal-with-presentation omarchy-tz-select"
   },
+  "custom/weather": {
+    "exec": "$OMARCHY_PATH/default/waybar/weather.sh",
+    "return-type": "json",
+    "interval": 60,
+    "tooltip": false,
+    "on-click": "notify-send -u low \"$(omarchy-weather-status)\""
+  },
   "network": {
     "format-icons": ["󰤯", "󰤟", "󰤢", "󰤥", "󰤨"],
     "format": "{icon} {ipaddr}",
     "format-wifi": "{icon} {ipaddr}",
     "format-ethernet": "󰀂 {ipaddr}",
     "format-disconnected": "󰤮",
-    "tooltip-format-wifi": "{essid} ({frequency} GHz)\n⇣{bandwidthDownBytes}  ⇡{bandwidthUpBytes}",
-    "tooltip-format-ethernet": "⇣{bandwidthDownBytes}  ⇡{bandwidthUpBytes}",
+    "tooltip-format-wifi": "{essid} ({frequency} GHz)",
+    "tooltip-format-ethernet": "Connected",
     "tooltip-format-disconnected": "Disconnected",
     "interval": 10,
     "spacing": 1,
@@ -117,6 +124,7 @@
     "tooltip-format-charging": "{time} until full",
     "interval": 5,
     "on-click": "omarchy-menu power",
+    "on-click-right": "notify-send -u low \"$(omarchy-battery-status)\"",
     "states": {
       "warning": 20,
       "critical": 10
@@ -156,7 +164,7 @@
     "tooltip": false
   },
   "custom/screenrecording-indicator": {
-    "on-click": "omarchy-cmd-screenrecord",
+    "on-click": "omarchy-capture-screenrecording",
     "exec": "$OMARCHY_PATH/default/waybar/indicators/screen-recording.sh",
     "signal": 8,
     "return-type": "json"
@@ -169,7 +177,7 @@
   },
   "custom/idle-lock": {
     "exec": "~/.config/waybar/scripts/idle-lock-status.sh",
-    "on-click": "omarchy-toggle-idle",
+    "on-click": "~/.config/waybar/scripts/toggle-idle-lock.sh",
     "return-type": "json",
     "signal": 9
   },

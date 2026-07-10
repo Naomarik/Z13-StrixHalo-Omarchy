@@ -23,6 +23,7 @@ STATE_FILE="/var/lib/performance-plus/active"
 systemd-run --no-block bash -c "
     sleep 5
     $RYZENADJ \
+        --stapm-limit=120000 \
         --fast-limit=120000 \
         --slow-limit=85000 \
         --apu-slow-limit=85000 \

@@ -44,32 +44,56 @@ is active.
 
 ### What Quiet (Q) does
 
-Quiet uses the stock `power-saver` profile limits (55 W fast / 40 W slow,
-plugged in). After a 3-second debounced tuning delay, it applies
-`--set-coall=0x0fffd8` if Ultra is not active and the current profile is still
-`power-saver`.
+Quiet sets the stock `power-saver` profile, then (5 s after the last click)
+applies explicit limits with a -20 undervolt if Ultra is not active and the
+current profile is still `power-saver`:
+
+```
+--stapm-limit=28000 --fast-limit=35000 --slow-limit=28000 --apu-slow-limit=28000
+--set-coall=0x0fffec --power-saving
+```
 
 ### What Balanced (B) does
 
-Balanced uses the stock `balanced` profile limits (71 W fast / 52 W slow,
-plugged in). After the same debounced tuning delay, it applies
-`--set-coall=0x0fffd8` if Ultra is not active and the current profile is still
-`balanced`.
+Balanced sets the stock `balanced` profile, then (same delayed tuning) applies:
+
+```
+--stapm-limit=45000 --fast-limit=55000 --slow-limit=45000 --apu-slow-limit=45000
+--set-coall=0x0fffec
+```
 
 ### What Performance (P) does
 
-Performance uses the stock `performance` profile limits. After the same
-debounced tuning delay, it applies `--set-coall=0x0fffdd` (**-35**) if Ultra is
-not active and the current profile is still `performance`.
+Performance sets the stock `performance` profile, then (same delayed tuning)
+applies:
 
-> **Why -35 instead of -40?** The `performance` platform profile raises
-> sustained clocks and boost voltage, which shrinks the undervolt margin. The
-> -40 offset that is stable on `balanced`/`power-saver` (which ran for 7+ days
-> without issue) destabilized the SoC on `performance`: after a resume the SMU
-> stopped responding during a GPU power-gating transition
-> (`Failed to power gate VPE` / `Failed to disable gfxoff`), wedging the GPU and
-> blanking the screen. The milder -35 offset restores headroom at the higher
-> performance operating point.
+```
+--stapm-limit=65000 --fast-limit=85000 --slow-limit=65000 --apu-slow-limit=65000
+--set-coall=0x0fffec --max-performance
+```
+
+> **Why -20 (not -30/-35/-40)?** A -40 offset destabilized the SoC on
+> `performance`: after a resume the SMU stopped responding during a GPU
+> power-gating transition (`Failed to power gate VPE` / `Failed to disable
+> gfxoff`), wedging the GPU and blanking the screen. An intermediate -35 also
+> hard-locked the machine at idle. All non-Ultra profiles now use a unified
+> mild -20 (`0x0fffec`), trading a little efficiency for stability.
+
+### Click handling (debounce — clicks are never ignored)
+
+Two failure modes crashed this machine in the past: **severe undervolts** and
+**ryzenadj being called too rapidly**. The toggle script guards both while
+staying fully responsive:
+
+- Every click immediately advances a *pending* profile file, which the status
+  script displays — so the icon updates on each click and rapid clicks keep
+  cycling `Q → B → P → U`.
+- A single flock-guarded background worker applies the actual
+  `powerprofilesctl` switch ~400 ms after the last click
+  (`POWER_PROFILE_SETTLE_MS`), and the ryzenadj tuning 5 s after the last
+  click (`POWER_PROFILE_TUNING_DELAY_MS`). Last click always wins.
+- A hard in-script backstop rate-limits ryzenadj to at most 1 call/second,
+  on top of the global 3 s cooldown in the `~/.local/bin/ryzenadj` wrapper.
 
 ---
 
@@ -80,7 +104,7 @@ not active and the current profile is still `performance`.
 | `~/.local/bin/ryzenadj` | Global throttling wrapper — shadows `/usr/bin/ryzenadj` |
 | `~/.config/waybar/scripts/power-profile-toggle.sh` | Cycles profiles on click, enables/disables Ultra |
 | `~/.config/waybar/scripts/power-profile-status.sh` | Returns JSON for Waybar module |
-| `~/.config/waybar/scripts/power-draw.sh` | Shows live `STAPM value/limit W` in Waybar |
+| `~/.config/waybar/scripts/power-draw.sh` | Shows live PPT watts in Waybar (amdgpu hwmon, no ryzenadj) |
 | `~/.config/waybar/scripts/performance-plus-sleep-hook` | Source copy of the sleep hook |
 | `~/.config/waybar/scripts/performance-plus-ac-hook` | Source copy of the AC power hook |
 | `/lib/systemd/system-sleep/performance-plus` | Installed sleep hook (re-applies on resume) |
@@ -194,24 +218,35 @@ No. Three reasons:
 #
 # Behaviour:
 #   -i (read/info)  → return cached output immediately if locked; never queue
-#   everything else → queue: wait for lock, then run (last queued args win)
+#   everything else → run immediately when idle; otherwise queue the latest args
+#                     and run them once after the cooldown
 #
-# State files live in /run/ryzenadj so both user and root can share them.
-# The directory is provisioned by /etc/tmpfiles.d/ryzenadj.conf at boot.
-#   /run/ryzenadj/lock    — flock lockfile (exclusive for writes)
-#   /run/ryzenadj/last    — epoch timestamp of last write
-#   /run/ryzenadj/cache   — last stdout of ryzenadj -i
-#   /run/ryzenadj/pending — null-delimited args for the queued write
-#   /run/ryzenadj/retry   — flock lockfile: ensures only one retry waiter
+# Test without touching hardware:
+#   RYZENADJ_RUNDIR=$(mktemp -d) RYZENADJ_THROTTLE_COOLDOWN=1 ryzenadj --throttle-test echo value
 #
 
 REAL=/usr/bin/ryzenadj
-RUNDIR=/run/ryzenadj
+RUNDIR=${RYZENADJ_RUNDIR:-/run/ryzenadj}
 LOCKFILE=$RUNDIR/lock
 TIMESTAMP=$RUNDIR/last
 CACHE=$RUNDIR/cache
 PENDING=$RUNDIR/pending
 RETRY_LOCK=$RUNDIR/retry
+COOLDOWN=${RYZENADJ_THROTTLE_COOLDOWN:-3}
+
+ensure_rw_file() {
+    local path=$1
+
+    if [[ -e "$path" && ! -w "$path" ]]; then
+        rm -f "$path" 2>/dev/null || true
+    fi
+
+    if [[ ! -e "$path" ]]; then
+        : > "$path" 2>/dev/null || true
+    fi
+
+    chmod 0666 "$path" 2>/dev/null || true
+}
 
 format_mw_limit() {
     local raw=$1
@@ -289,94 +324,112 @@ update_cached_limits() {
     ' "$CACHE" > "$tmp_cache" && mv "$tmp_cache" "$CACHE"
 }
 
-# Guard: ensure runtime dir exists (tmpfiles.d creates it on boot, but be safe)
+queue_latest() {
+    local tmp_pending="${PENDING}.tmp.$$"
+    printf '%s\0' "$@" > "$tmp_pending" && mv "$tmp_pending" "$PENDING"
+    chmod 0666 "$PENDING" 2>/dev/null || true
+}
+
+start_retry_worker() {
+    local delay=$1
+
+    exec 8>"$RETRY_LOCK"
+    if ! flock --nonblock 8; then
+        return 0
+    fi
+
+    (
+        local -a args
+
+        sleep "$delay"
+        if [[ -s "$PENDING" ]]; then
+            mapfile -d '' -t args < "$PENDING"
+            : > "$PENDING"
+            throttle_latest "${args[@]}"
+        fi
+        flock --unlock 8
+    ) &
+}
+
+throttle_latest() {
+    local -a command=("$@")
+    local last=0
+    local now
+    local elapsed
+    local remaining
+    local status
+
+    if [[ ${#command[@]} -eq 0 ]]; then
+        echo "ryzenadj: throttle_latest requires a command" >&2
+        return 2
+    fi
+
+    if [[ -s "$TIMESTAMP" ]]; then
+        read -r last < "$TIMESTAMP" || last=0
+    fi
+
+    now=$(date +%s)
+    elapsed=$(( now - last ))
+    if (( elapsed < COOLDOWN )); then
+        remaining=$(( COOLDOWN - elapsed ))
+        echo "ryzenadj: cooldown active, queuing for retry in ${remaining}s" >&2
+        queue_latest "${command[@]}"
+        start_retry_worker "$remaining"
+        return 0
+    fi
+
+    exec 9>"$LOCKFILE"
+    if ! flock --nonblock 9; then
+        echo "ryzenadj: locked, queuing" >&2
+        queue_latest "${command[@]}"
+        start_retry_worker "$COOLDOWN"
+        return 0
+    fi
+
+    : > "$PENDING"
+    date +%s > "$TIMESTAMP"
+    "${command[@]}"
+    status=$?
+    flock --unlock 9
+    return "$status"
+}
+
 mkdir -p "$RUNDIR" && chmod 0777 "$RUNDIR" 2>/dev/null || true
 ensure_rw_file "$LOCKFILE"
 ensure_rw_file "$CACHE"
 ensure_rw_file "$PENDING"
 ensure_rw_file "$TIMESTAMP"
 ensure_rw_file "$RETRY_LOCK"
-COOLDOWN=3  # seconds between write calls
 
-# ── Info / read path ─────────────────────────────────────────────────────────
+if [[ ${1-} == "--throttle-test" ]]; then
+    shift
+    throttle_latest "$@"
+    exit $?
+fi
+
 if [[ $# -eq 1 && "$1" == "-i" ]]; then
     exec 9>"$LOCKFILE"
     if flock --nonblock 9; then
-        # Lock acquired — run live and update cache
         OUTPUT=$(sudo "$REAL" -i 2>&1)
         STATUS=$?
         echo "$OUTPUT" > "$CACHE"
         flock --unlock 9
         echo "$OUTPUT"
         exit $STATUS
-    else
-        # Locked by a write — return cached value immediately
-        if [[ -f "$CACHE" ]]; then
-            cat "$CACHE"
-            exit 0
-        else
-            echo "ryzenadj: locked, no cache yet" >&2
-            exit 1
-        fi
     fi
-fi
 
-# ── Write path ───────────────────────────────────────────────────────────────
-# Cooldown check first
-if [[ -f "$TIMESTAMP" ]]; then
-    LAST=$(cat "$TIMESTAMP" 2>/dev/null || echo 0)
-    NOW=$(date +%s)
-    ELAPSED=$(( NOW - LAST ))
-    if (( ELAPSED < COOLDOWN )); then
-        REMAINING=$(( COOLDOWN - ELAPSED ))
-        echo "ryzenadj: cooldown active, queuing for retry in ${REMAINING}s" >&2
-        printf '%s\0' "$@" > "$PENDING"
-        update_cached_limits "$@"
-        exec 8>"$RETRY_LOCK"
-        if flock --nonblock 8; then
-            (
-                sleep "$REMAINING"
-                if [[ -f "$PENDING" ]]; then
-                    mapfile -d '' ARGS < "$PENDING"
-                    rm -f "$PENDING"
-                    "$0" "${ARGS[@]}"
-                fi
-                flock --unlock 8
-            ) &
-        fi
+    if [[ -f "$CACHE" ]]; then
+        cat "$CACHE"
         exit 0
     fi
+
+    echo "ryzenadj: locked, no cache yet" >&2
+    exit 1
 fi
 
-# Acquire write lock
-exec 9>"$LOCKFILE"
-if ! flock --nonblock 9; then
-    echo "ryzenadj: locked, queuing" >&2
-    printf '%s\0' "$@" > "$PENDING"
-    update_cached_limits "$@"
-    exec 8>"$RETRY_LOCK"
-    if flock --nonblock 8; then
-        (
-            sleep "$COOLDOWN"
-            if [[ -f "$PENDING" ]]; then
-                mapfile -d '' ARGS < "$PENDING"
-                rm -f "$PENDING"
-                "$0" "${ARGS[@]}"
-            fi
-            flock --unlock 8
-        ) &
-    fi
-    exit 0
-fi
-
-# Lock acquired — run
-rm -f "$PENDING"
 update_cached_limits "$@"
-date +%s > "$TIMESTAMP"
-sudo "$REAL" "$@"
-STATUS=$?
-flock --unlock 9
-exit $STATUS
+throttle_latest sudo "$REAL" "$@"
+exit $?
 ```
 
 ---
@@ -385,20 +438,23 @@ exit $STATUS
 
 The toggle script cycles `Q -> B -> P -> U -> Q`.
 
-- `Q/B/P` switch immediately through `powerprofilesctl`, then schedule one
-  debounced `ryzenadj` tuning call after 3 seconds.
-- The delayed tuning is skipped if Ultra is active or if the current stock
-  profile no longer matches the queued profile.
-- `U` applies Ultra immediately and re-applies after 3s and 9s, but delayed
-  Ultra re-applies are skipped if Ultra is no longer active.
+- Every click advances the *pending* profile immediately (shown by the status
+  script), so rapid clicks keep cycling and are never swallowed.
+- A single flock-guarded background worker applies the `powerprofilesctl`
+  switch ~400 ms after the last click, then the `ryzenadj` tuning 5 s after
+  the last click. Last click wins.
+- The delayed tuning is skipped if Ultra state or the current stock profile no
+  longer matches what was queued.
+- An in-script backstop rate-limits ryzenadj to at most 1 call per second, on
+  top of the wrapper's global cooldown.
 
 Per-profile delayed tuning:
 
 | Profile | Delayed ryzenadj args |
 |---------|-----------------------|
-| `power-saver` | `--set-coall=0x0fffd8` (-40) |
-| `balanced` | `--set-coall=0x0fffd8` (-40) |
-| `performance` | `--set-coall=0x0fffdd` (-35) |
+| `power-saver` | `--stapm-limit=28000 --fast-limit=35000 --slow-limit=28000 --apu-slow-limit=28000 --set-coall=0x0fffec --power-saving` (-20) |
+| `balanced` | `--stapm-limit=45000 --fast-limit=55000 --slow-limit=45000 --apu-slow-limit=45000 --set-coall=0x0fffec` (-20) |
+| `performance` | `--stapm-limit=65000 --fast-limit=85000 --slow-limit=65000 --apu-slow-limit=65000 --set-coall=0x0fffec --max-performance` (-20) |
 | `ultra` | `--stapm-limit=120000 --fast-limit=120000 --slow-limit=85000 --apu-slow-limit=85000 --set-coall=0x0ffff1` (-15) |
 
 ---
@@ -413,12 +469,28 @@ Per-profile delayed tuning:
 #
 
 STATE_FILE="/var/lib/performance-plus/active"
-PROFILE=$(powerprofilesctl get 2>/dev/null || echo "balanced")
+PENDING="${XDG_RUNTIME_DIR:-/tmp}/power-profile-toggle/pending-profile"
 
-# Ultra overrides everything
-if [[ -f "$STATE_FILE" ]]; then
+power_profile_get() {
+    python3.14 /usr/bin/powerprofilesctl get 2>/dev/null || powerprofilesctl get 2>/dev/null
+}
+
+PROFILE=""
+ULTRA=false
+
+# A pending click-selected profile takes precedence (ignore if stale >30s,
+# e.g. leftover from a killed worker)
+if [[ -s "$PENDING" ]] && (( $(date +%s) - $(stat -c %Y "$PENDING" 2>/dev/null || echo 0) < 30 )); then
+    PROFILE=$(<"$PENDING")
+    [[ "$PROFILE" == "ultra" ]] && ULTRA=true
+else
+    PROFILE=$(power_profile_get || echo "balanced")
+    [[ -f "$STATE_FILE" ]] && ULTRA=true
+fi
+
+if $ULTRA; then
     ICON="<span color='#ffaa00'>⚡</span> (U)"
-    TOOLTIP="Power profile: Ultra (Performance Plus)\nRyzenAdj OC active — survives suspend"
+    TOOLTIP="Power profile: Ultra (Performance Plus)\nRyzenAdj OC active - survives suspend"
 else
     case "$PROFILE" in
         performance)
@@ -451,15 +523,21 @@ echo "{\"text\":\"$ICON\",\"tooltip\":\"$TOOLTIP\"}"
 ```bash
 #!/bin/bash
 
-# Read STAPM value + limit from ryzenadj -i
-# Format: 13/86W (current draw / package limit)
-info=$("$HOME/.local/bin/ryzenadj" -i 2>/dev/null)
+# Read the amdgpu PPT sensor from hwmon instead of polling SMU via ryzenadj -i.
+for hwmon in /sys/class/hwmon/hwmon*; do
+    [[ -r "$hwmon/name" && "$(<"$hwmon/name")" == "amdgpu" ]] || continue
+    [[ -r "$hwmon/power1_average" ]] || continue
 
-value=$(echo "$info" | awk -F'|' '/STAPM VALUE/{gsub(/ /,"",$3); printf "%.0f", $3}')
-limit=$(echo "$info" | awk -F'|' '/STAPM LIMIT/{gsub(/ /,"",$3); printf "%.0f", $3}')
+    microwatts=$(<"$hwmon/power1_average")
+    value=$(( (microwatts + 500000) / 1000000 ))
+    echo "{\"text\":\" ${value}W\",\"tooltip\":\"PPT power from amdgpu hwmon: ${value}W\"}"
+    exit 0
+done
 
-if [[ -n "$value" && -n "$limit" ]]; then
-    echo "{\"text\":\" ${value}/${limit}W\",\"tooltip\":\"CPU Power: ${value}W of ${limit}W STAPM limit\"}"
+if [[ -r /sys/class/drm/card1/device/hwmon/hwmon7/power1_average ]]; then
+    microwatts=$(</sys/class/drm/card1/device/hwmon/hwmon7/power1_average)
+    value=$(( (microwatts + 500000) / 1000000 ))
+    echo "{\"text\":\" ${value}W\",\"tooltip\":\"PPT power from amdgpu hwmon: ${value}W\"}"
 else
     echo "{\"text\":\" N/A\",\"tooltip\":\"Power data unavailable\"}"
 fi
@@ -480,9 +558,8 @@ The installed sleep hook is copied from
 `~/.config/waybar/scripts/performance-plus-sleep-hook`. The Curve Optimizer
 offset does not survive suspend, so the hook reasserts it on every resume: it
 re-applies the full Ultra settings when `/var/lib/performance-plus/active`
-exists, and otherwise re-applies the per-profile undervolt for the active
-non-Ultra profile (`performance` → -35 `0x0fffdd`, `balanced`/`power-saver` →
--40 `0x0fffd8`).
+exists, and otherwise re-applies the full per-profile limits and the -20
+undervolt (`0x0fffec`) for the active non-Ultra profile.
 
 ---
 
@@ -528,11 +605,12 @@ STATE_FILE="/var/lib/performance-plus/active"
 [[ -f "$STATE_FILE" ]] || exit 0
 [[ "$(cat /sys/class/power_supply/AC0/online 2>/dev/null)" == "1" ]] || exit 0
 
-# Delay 5s to let power-profiles-daemon finish re-applying its own PPT limits,
+# Delay 2s to let power-profiles-daemon finish re-applying its own PPT limits,
 # then override with Ultra values.
 systemd-run --no-block bash -c "
     sleep 5
     $RYZENADJ \
+        --stapm-limit=120000 \
         --fast-limit=120000 \
         --slow-limit=85000 \
         --apu-slow-limit=85000 \

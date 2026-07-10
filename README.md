@@ -111,20 +111,24 @@ Profile limits reported by `ryzenadj -i` on this machine (plugged in):
 > Values are lower on battery — these are AC/plugged-in readings.
 
 Ultra applies a milder **-15** all-core Curve Optimizer (`--set-coall=0x0ffff1`)
-instead of the -40 used on other profiles. The combination of raised PPT limits
+instead of the -20 used on other profiles. The combination of raised PPT limits
 (120 W) and a large undervolt caused instability on this machine, so Ultra uses
 a conservative undervolt to stay stable under heavy all-core load.
 
-Quiet and Balanced apply a **-40** Curve Optimizer (`--set-coall=0x0fffd8`)
-after a 3-second debounced tuning delay, as long as Ultra is not active.
-Performance uses a milder **-35** (`--set-coall=0x0fffdd`) because its raised
-clocks/boost voltage shrink the undervolt margin (a -40 offset destabilized the
-SoC on resume). No profile manually caps Tctl; thermal limits are left to the
-platform defaults. The resume hook reasserts each profile's offset after
-suspend, since the Curve Optimizer does not survive a sleep cycle.
+Quiet, Balanced, and Performance apply explicit per-profile PPT limits
+(28/45/65 W STAPM) with a **-20** Curve Optimizer (`--set-coall=0x0fffec`),
+applied 5 seconds after the last click, as long as Ultra is not active. More
+aggressive offsets previously destabilized the SoC (-40 wedged the GPU on
+resume via a stuck SMU power-gating transition; -35 hard-locked at idle), so
+non-Ultra profiles use the milder -20. No profile manually caps Tctl; thermal
+limits are left to the platform defaults. The resume hook reasserts the limits
+and offset after suspend, since ryzenadj settings do not survive a sleep cycle.
 
 The Waybar module cycles `Q -> B -> P -> U -> Q` on click and reports live
-STAPM watts.
+PPT watts. Clicks are never ignored: each click immediately advances the
+displayed profile, and the toggle script debounces internally — the profile
+switch applies ~400 ms after the last click and the ryzenadj tuning 5 s after
+the last click, always settling on the last profile the user clicked.
 
 Important stability note: concurrent `ryzenadj` writes can hang the system on
 this platform, so the setup uses a wrapper with an exclusive lock and cooldown.
